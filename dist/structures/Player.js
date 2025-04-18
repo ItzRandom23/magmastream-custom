@@ -258,8 +258,6 @@ class Player {
             if (!deleted) {
                 console.warn(`[Player] Deletion failed despite existence in map for guild: ${this.guildId}`);
             }
-        } else {
-            console.warn(`[Player] No player found in manager for guild: ${this.guildId}, already deleted?`);
         }
     
         return deleted;
