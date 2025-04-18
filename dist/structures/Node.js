@@ -601,23 +601,38 @@ class Node {
      * @private
      */
     async handleAutoplay(player, attempt = 0) {
-        // If autoplay is not enabled or all attempts have failed, early exit
         if (!player.isAutoplay || attempt > player.autoplayTries || !player.queue.previous.length)
             return false;
+    
         const lastTrack = player.queue.previous[player.queue.previous.length - 1];
+        if (!lastTrack) return false;
+    
         lastTrack.requester = player.get("Internal_BotUser");
-        if (!lastTrack)
-            return false;
+    
+        let autoplayHistory = player.get("autoplayHistory");
+        if (!autoplayHistory) {
+            autoplayHistory = new Set();
+            player.set("autoplayHistory", autoplayHistory);
+        }
+    
         const tracks = await Utils_1.AutoPlayUtils.getRecommendedTracks(lastTrack);
-        if (tracks.length) {
-            player.queue.add(tracks[0]);
-            await player.play();
-            return true;
+        if (!tracks?.length) return false;
+    
+        const uniqueTrack = tracks.find(track => !autoplayHistory.has(track.identifier));
+    
+        if (!uniqueTrack) {
+            return await this.handleAutoplay(player, attempt + 1); // Retry
         }
-        else {
-            return false;
-        }
+    
+        autoplayHistory.add(uniqueTrack.identifier);
+        player.set("autoplayHistory", autoplayHistory);
+    
+        player.queue.add(uniqueTrack);
+        await player.play();
+        return true;
     }
+    
+    
     /**
      * Handles the scenario when a track fails to play or load.
      * Shifts the queue to the next track and emits a track end event.

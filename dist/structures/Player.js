@@ -95,6 +95,8 @@ class Player {
         this.queue.previous = new Array();
         // Add the player to the manager's player collection.
         this.manager.players.set(options.guildId, this);
+        /** Tracks played by autoplay this session */
+        this.autoplayHistory = new Set();
         // Set the initial volume.
         this.setVolume(options.volume ?? 100);
         // Initialize the filters.
@@ -222,35 +224,37 @@ class Player {
     async destroy(disconnect = true) {
         const oldPlayer = this ? { ...this } : null;
         this.state = Utils_1.StateTypes.Destroying;
-    
+
         if (disconnect) {
-            await this.pause(true).catch(() => {});
-            await this.disconnect().catch(() => {});
+            await this.pause(true).catch(() => { });
+            await this.disconnect().catch(() => { });
         }
-    
+
         // Stop any intervals or loops
         if (this.dynamicLoopInterval) {
             clearInterval(this.dynamicLoopInterval);
             this.dynamicLoopInterval = null;
         }
-    
+
         // Fully disable autoplay
         this.isAutoplay = false;
-    
+        this.set("autoplayHistory", new Set());
+
+
         // Clear filters, queue, data
-        await this.node.rest.destroyPlayer(this.guildId).catch(() => {});
+        await this.node.rest.destroyPlayer(this.guildId).catch(() => { });
         this.queue.clear();
         this.filters = null;
         this.queue.current = null;
         this.queue.previous = [];
-    
+
         // Emit events
         this.manager.emit(Manager_1.ManagerEventTypes.PlayerStateUpdate, oldPlayer, null, {
             changeType: Manager_1.PlayerStateEventTypes.PlayerDestroy,
         });
-    
+
         this.manager.emit(Manager_1.ManagerEventTypes.PlayerDestroy, this);
-    
+
         // Safe delete
         let deleted = false;
         if (this.manager.players.has(this.guildId)) {
@@ -259,11 +263,11 @@ class Player {
                 console.warn(`[Player] Deletion failed despite existence in map for guild: ${this.guildId}`);
             }
         }
-    
+
         return deleted;
     }
-    
-    
+
+
     /**
      * Sets the player voice channel.
      * @param {string} channel - The new voice channel ID.
@@ -684,17 +688,17 @@ class Player {
         if (!this.queue.previous.length) {
             throw new Error("There is no previous track.");
         }
-    
+
         const current = this.queue.current;
-    
+
         // Move the most recent previous track back to current
         const previousTrack = this.queue.previous.pop();
         this.queue.unshift(current); // Push current track to the front of the queue
         this.queue.current = previousTrack;
-    
+
         await this.play();
     }
-    
+
     /**
      * Seeks to a given position in the currently playing track.
      * @param position - The position in milliseconds to seek to.
