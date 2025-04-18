@@ -236,13 +236,14 @@ class Manager extends events_1.EventEmitter {
      * @returns A promise that resolves when the player has been destroyed.
      */
     async destroy(guildId) {
-        // Emit debug message for player destruction
-        this.emit(ManagerEventTypes.Debug, `[MANAGER] Destroying player: ${guildId}`);
-        // Remove the player from the manager's collection
-        this.players.delete(guildId);
-        // Clean up any inactive players
-        await this.cleanupInactivePlayers();
+        const player = this.players.get(guildId);
+        if (player) {
+            await player.destroy();
+        } else {
+            this.emit(ManagerEventTypes.Debug, `[MANAGER] Tried to destroy non-existent player: ${guildId}`);
+        }
     }
+    
     /**
      * Creates a new node or returns an existing one if it already exists.
      * @param options - The options to create the node with.

@@ -223,7 +223,6 @@ class Player {
         const oldPlayer = this ? { ...this } : null;
         this.state = Utils_1.StateTypes.Destroying;
     
-        
         if (disconnect) {
             await this.pause(true).catch(() => {});
             await this.disconnect().catch(() => {});
@@ -245,20 +244,27 @@ class Player {
         this.queue.current = null;
         this.queue.previous = [];
     
-        // Emit events and remove from manager
+        // Emit events
         this.manager.emit(Manager_1.ManagerEventTypes.PlayerStateUpdate, oldPlayer, null, {
             changeType: Manager_1.PlayerStateEventTypes.PlayerDestroy,
         });
     
         this.manager.emit(Manager_1.ManagerEventTypes.PlayerDestroy, this);
     
-        const deleted = this.manager.players.delete(this.guildId);
-        if (!deleted) {
-            console.warn(`[Player] Failed to fully delete player for guild: ${this.guildId}`);
+        // Safe delete
+        let deleted = false;
+        if (this.manager.players.has(this.guildId)) {
+            deleted = this.manager.players.delete(this.guildId);
+            if (!deleted) {
+                console.warn(`[Player] Deletion failed despite existence in map for guild: ${this.guildId}`);
+            }
+        } else {
+            console.warn(`[Player] No player found in manager for guild: ${this.guildId}, already deleted?`);
         }
     
         return deleted;
     }
+    
     
     /**
      * Sets the player voice channel.
