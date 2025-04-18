@@ -222,21 +222,44 @@ class Player {
     async destroy(disconnect = true) {
         const oldPlayer = this ? { ...this } : null;
         this.state = Utils_1.StateTypes.Destroying;
+    
+        
         if (disconnect) {
-            await this.disconnect();
+            await this.pause(true).catch(() => {});
+            await this.disconnect().catch(() => {});
         }
-        await this.node.rest.destroyPlayer(this.guildId);
+    
+        // Stop any intervals or loops
+        if (this.dynamicLoopInterval) {
+            clearInterval(this.dynamicLoopInterval);
+            this.dynamicLoopInterval = null;
+        }
+    
+        // Fully disable autoplay
+        this.isAutoplay = false;
+    
+        // Clear filters, queue, data
+        await this.node.rest.destroyPlayer(this.guildId).catch(() => {});
         this.queue.clear();
+        this.filters = null;
+        this.queue.current = null;
+        this.queue.previous = [];
+    
+        // Emit events and remove from manager
         this.manager.emit(Manager_1.ManagerEventTypes.PlayerStateUpdate, oldPlayer, null, {
             changeType: Manager_1.PlayerStateEventTypes.PlayerDestroy,
         });
+    
         this.manager.emit(Manager_1.ManagerEventTypes.PlayerDestroy, this);
+    
         const deleted = this.manager.players.delete(this.guildId);
         if (!deleted) {
-            console.warn(`Failed to delete player with guildId: ${this.guildId}`);
+            console.warn(`[Player] Failed to fully delete player for guild: ${this.guildId}`);
         }
+    
         return deleted;
     }
+    
     /**
      * Sets the player voice channel.
      * @param {string} channel - The new voice channel ID.
@@ -654,33 +677,20 @@ class Player {
      * @emits {PlayerStateUpdate} - With {@link PlayerStateEventTypes.TrackChange} as the change type.
      */
     async previous() {
-        // Check if there are previous tracks in the queue.
         if (!this.queue.previous.length) {
-            throw new Error("No previous track available.");
+            throw new Error("There is no previous track.");
         }
-        // Capture the current state of the player before making changes.
-        const oldPlayer = { ...this };
-        // Store the current track before changing it.
-        // let currentTrackBeforeChange: Track | null = this.queue.current ? (this.queue.current as Track) : null;
-        // Get the last played track and remove it from the history
-        const lastTrack = this.queue.previous.pop();
-        // Set the skip flag to true to prevent the onTrackEnd event from playing the next track.
-        this.set("skipFlag", true);
-        await this.play(lastTrack);
-        // Add the current track back to the end of the previous queue
-        // if (currentTrackBeforeChange) this.queue.push(currentTrackBeforeChange);
-        // Emit a player state update event indicating the track change to previous.
-        this.manager.emit(Manager_1.ManagerEventTypes.PlayerStateUpdate, oldPlayer, this, {
-            changeType: Manager_1.PlayerStateEventTypes.TrackChange,
-            details: {
-                changeType: "previous",
-                track: lastTrack,
-            },
-        });
-        // Reset the skip flag.
-        this.set("skipFlag", false);
-        return this;
+    
+        const current = this.queue.current;
+    
+        // Move the most recent previous track back to current
+        const previousTrack = this.queue.previous.pop();
+        this.queue.unshift(current); // Push current track to the front of the queue
+        this.queue.current = previousTrack;
+    
+        await this.play();
     }
+    
     /**
      * Seeks to a given position in the currently playing track.
      * @param position - The position in milliseconds to seek to.
