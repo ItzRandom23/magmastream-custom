@@ -188,7 +188,7 @@ class Player {
         // Clone the current player state for comparison.
         const oldPlayer = this ? { ...this } : null;
         // Pause the player.
-        await this.pause(true);
+        this.pause(true);
         // Send the voice state update to the gateway.
         this.manager.options.send(this.guildId, {
             op: 4,
