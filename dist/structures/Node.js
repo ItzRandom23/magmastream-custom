@@ -199,7 +199,12 @@ class Node {
             headers["Session-Id"] = this.sessionId;
         }
         this.socket = new ws_1.default(`ws${this.options.useSSL ? "s" : ""}://${this.address}/v4/websocket`, { headers });
-        this.socket.on("open", this.open.bind(this));
+        this.socket.on("open", async () => {
+            this.open();
+            await this.rest.updateSession(true, this.options.sessionTimeoutMs || 60000);
+            this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Session resume enabled for ${this.options.identifier}`);
+        });
+        
         this.socket.on("close", this.close.bind(this));
         this.socket.on("message", this.message.bind(this));
         this.socket.on("error", this.error.bind(this));
