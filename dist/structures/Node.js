@@ -4,6 +4,8 @@ exports.Node = exports.SponsorBlockSegment = void 0;
 const tslib_1 = require("tslib");
 const Utils_1 = require("./Utils");
 const Manager_1 = require("./Manager");
+const fs = require("fs");
+const path = require("path");
 const Rest_1 = require("./Rest");
 const nodeCheck_1 = tslib_1.__importDefault(require("../utils/nodeCheck"));
 const ws_1 = tslib_1.__importDefault(require("ws"));
