@@ -202,6 +202,24 @@ class Node {
         this.socket.on("open", async () => {
             this.open();
             await this.rest.updateSession(true, this.options.sessionTimeoutMs || 60000);
+            for (const [guildId, player] of this.manager.players) {
+                if (player.node !== this) continue;
+                if (!player.voiceSessionId || !player.voiceStateEvent) continue;
+            
+                await this.rest.updatePlayer({
+                    guildId,
+                    data: {
+                        voice: {
+                            sessionId: player.voiceSessionId,
+                            event: player.voiceStateEvent,
+                        },
+                    },
+                });
+            
+                this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[RESUME] Rebound player for guild: ${guildId}`);
+            }
+            
+            
             this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Session resume enabled for ${this.options.identifier}`);
         });
         
@@ -317,19 +335,29 @@ class Node {
      * with the node as the argument.
      */
     open() {
-        // Clear any existing reconnect timeouts
         if (this.reconnectTimeout)
             clearTimeout(this.reconnectTimeout);
-        // Collect debug information regarding the current state of the node
+    
         const debugInfo = {
             identifier: this.options.identifier,
             connected: this.connected,
+            sessionId: this.sessionId,
         };
-        // Emit a debug event indicating the node is connected
+    
         this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Connected node: ${JSON.stringify(debugInfo)}`);
-        // Emit a "nodeConnect" event with the node as the argument
         this.manager.emit(Manager_1.ManagerEventTypes.NodeConnect, this);
+    
+        // ✅ Save the session ID if needed
+        if (this.options.enableSessionResumeOption && this.sessionId) {
+            const compositeKey = `${this.options.identifier}::${this.manager.options.clusterId}`;
+            sessionIdsMap.set(compositeKey, this.sessionId);
+            fs.writeFileSync(
+                path.join(__dirname, "sessionIds.json"),
+                JSON.stringify(Object.fromEntries(sessionIdsMap), null, 4)
+            );
+        }
     }
+    
     /**
      * Handles the "close" event emitted by the WebSocket connection.
      *

@@ -132,6 +132,10 @@ class Player {
         // Set the Manager to use.
         this._manager = manager;
     }
+    updateVoiceState(sessionId, event) {
+        this.voiceSessionId = sessionId;
+        this.voiceStateEvent = event;
+    }
     /**
      * Same as Manager#search() but a shortcut on the player itself.
      * @param query
@@ -410,6 +414,7 @@ class Player {
         const tracks = await Utils_1.AutoPlayUtils.getRecommendedTracks(track);
         return tracks;
     }
+
     /**
      * Sets the volume of the player.
      * @param {number} volume - The new volume. Must be between 0 and 1000.
