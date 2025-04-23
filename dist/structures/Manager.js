@@ -349,7 +349,7 @@ class Manager extends events_1.EventEmitter {
      */
     async savePlayerState(guildId) {
         try {
-            const playerStateFilePath = await this.getPlayerFilePath(guildId);
+            const playerStateFilePath = this.getPlayerFilePath(guildId);
             const player = this.players.get(guildId);
             if (!player || player.state === Utils_1.StateTypes.Disconnected || !player.voiceChannelId) {
                 console.warn(`Skipping save for inactive player: ${guildId}`);
@@ -785,9 +785,9 @@ class Manager extends events_1.EventEmitter {
             }
             if (key === "data") {
                 return {
-                    clientUser: value?.Internal_BotUser || null,
+                    clientUser: value.Internal_BotUser ?? null,
                 };
-            }                      
+            }
             return serialize(value);
         }));
     }
