@@ -785,9 +785,9 @@ class Manager extends events_1.EventEmitter {
             }
             if (key === "data") {
                 return {
-                    clientUser: (value && value.Internal_BotUser) ?? null,
+                    clientUser: value?.Internal_BotUser || null,
                 };
-            }            
+            }                      
             return serialize(value);
         }));
     }
