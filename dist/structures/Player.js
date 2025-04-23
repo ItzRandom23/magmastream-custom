@@ -352,6 +352,10 @@ class Player {
             : ["startTime", "endTime", "noReplace"].every((v) => Object.keys(optionsOrTrack || {}).includes(v))
                 ? optionsOrTrack
                 : {};
+        const requester = this.queue.current?.requester;
+        if (requester && typeof requester.id === "string") {
+            this.set("Internal_BotUser", requester);
+        }
         await this.node.rest.updatePlayer({
             guildId: this.guildId,
             data: {

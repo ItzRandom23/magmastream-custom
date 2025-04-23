@@ -347,22 +347,19 @@ class Manager extends events_1.EventEmitter {
      * Saves player states to the JSON file.
      * @param {string} guildId - The guild ID of the player to save
      */
-    async savePlayerState(guildId) {
+    async savePlayerState(player) {
         try {
-            const playerStateFilePath = this.getPlayerFilePath(guildId);
-            const player = this.players.get(guildId);
-            if (!player || player.state === Utils_1.StateTypes.Disconnected || !player.voiceChannelId) {
-                console.warn(`Skipping save for inactive player: ${guildId}`);
-                return;
-            }
-            const serializedPlayer = this.serializePlayer(player);
-            await promises_1.default.writeFile(playerStateFilePath, JSON.stringify(serializedPlayer, null, 2), "utf-8");
-            this.emit(ManagerEventTypes.Debug, `[MANAGER] Player state saved: ${guildId}`);
-        }
-        catch (error) {
-            console.error(`Error saving player state for guild ${guildId}:`, error);
+            if (!player || !player.guildId) return;
+            if (!player.data) player.data = {}; // ✅ ensures `.data` is never undefined
+    
+            const serialized = this.serializePlayer(player);
+            const filePath = path.join(this.resumePath, `${player.guildId}.json`);
+            await fs.promises.writeFile(filePath, serialized);
+        } catch (err) {
+            this.emit("debug", `Error saving player state for guild ${player.guildId}: ${err.stack || err.message}`);
         }
     }
+    
     /**
      * Loads player states from the JSON file.
      * @param nodeId The ID of the node to load player states from.
@@ -744,53 +741,20 @@ class Manager extends events_1.EventEmitter {
      * @returns The serialized Player instance
      */
     serializePlayer(player) {
-        const seen = new WeakSet();
-        /**
-         * Recursively serializes an object, avoiding circular references.
-         * @param obj The object to serialize
-         * @returns The serialized object
-         */
-        const serialize = (obj) => {
-            if (obj && typeof obj === "object") {
-                if (seen.has(obj))
-                    return;
-                seen.add(obj);
-            }
-            return obj;
-        };
-        return JSON.parse(JSON.stringify(player, (key, value) => {
-            if (key === "manager") {
-                return null;
-            }
-            if (key === "filters") {
-                return {
-                    distortion: value.distortion ?? null,
-                    equalizer: value.equalizer ?? [],
-                    karaoke: value.karaoke ?? null,
-                    rotation: value.rotation ?? null,
-                    timescale: value.timescale ?? null,
-                    vibrato: value.vibrato ?? null,
-                    reverb: value.reverb ?? null,
-                    volume: value.volume ?? 1.0,
-                    bassBoostlevel: value.bassBoostlevel ?? null,
-                    filterStatus: { ...value.filtersStatus },
-                };
-            }
-            if (key === "queue") {
-                return {
-                    current: value.current || null,
-                    tracks: [...value],
-                    previous: [...value.previous],
-                };
-            }
-            if (key === "data") {
-                return {
-                    clientUser: value.Internal_BotUser ?? null,
-                };
-            }
-            return serialize(value);
-        }));
+        try {
+            return JSON.stringify(player, (key, value) => {
+                if (key === "data") {
+                    const clientUser = value?.Internal_BotUser ?? null;
+                    return { clientUser };
+                }
+                return value;
+            });
+        } catch (err) {
+            this.emit("debug", `Failed to serialize player for guild ${player.guildId}: ${err.message}`);
+            return "{}";
+        }
     }
+    
     /**
      * Checks for players that are no longer active and deletes their saved state files.
      * This is done to prevent stale state files from accumulating on the file system.
