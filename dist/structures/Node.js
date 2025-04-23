@@ -201,27 +201,32 @@ class Node {
         this.socket = new ws_1.default(`ws${this.options.useSSL ? "s" : ""}://${this.address}/v4/websocket`, { headers });
         this.socket.on("open", async () => {
             this.open();
-            await this.rest.updateSession(true, this.options.sessionTimeoutMs || 60000);
-            for (const [guildId, player] of this.manager.players) {
-                if (player.node !== this) continue;
-                if (!player.voiceSessionId || !player.voiceStateEvent) continue;
-            
-                await this.rest.updatePlayer({
-                    guildId,
-                    data: {
-                        voice: {
-                            sessionId: player.voiceSessionId,
-                            event: player.voiceStateEvent,
+        
+            if (this.options.resumeStatus) {
+                await this.rest.updateSession(true, this.options.sessionTimeoutMs || 60000);
+                this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Resume activated for ${this.options.identifier}`);
+        
+                for (const [guildId, player] of this.manager.players) {
+                    if (player.node !== this) continue;
+                    if (!player.voiceSessionId || !player.voiceStateEvent) continue;
+        
+                    await this.rest.updatePlayer({
+                        guildId,
+                        data: {
+                            voice: {
+                                sessionId: player.voiceSessionId,
+                                event: player.voiceStateEvent,
+                            },
                         },
-                    },
-                });
-            
-                this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[RESUME] Rebound player for guild: ${guildId}`);
+                    });
+        
+                    this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[RESUME] Rebound player for guild: ${guildId}`);
+                }
+            } else {
+                this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Resume is disabled for ${this.options.identifier}`);
             }
-            
-            
-            this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Session resume enabled for ${this.options.identifier}`);
         });
+        
         
         this.socket.on("close", this.close.bind(this));
         this.socket.on("message", this.message.bind(this));
@@ -347,8 +352,7 @@ class Node {
         this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Connected node: ${JSON.stringify(debugInfo)}`);
         this.manager.emit(Manager_1.ManagerEventTypes.NodeConnect, this);
     
-        // ✅ Save the session ID if needed
-        if (this.options.enableSessionResumeOption && this.sessionId) {
+        if (this.options.resumeStatus && this.sessionId) {
             const compositeKey = `${this.options.identifier}::${this.manager.options.clusterId}`;
             sessionIdsMap.set(compositeKey, this.sessionId);
             fs.writeFileSync(
