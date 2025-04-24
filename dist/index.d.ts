@@ -200,7 +200,7 @@ declare class Node {
      * @remarks
      * If the node is already connected, this method will do nothing.
      * If the node has a session ID, it will be sent in the headers of the WebSocket connection.
-     * If the node has no session ID but the `enableSessionResumeOption` option is true, it will use the session ID
+     * If the node has no session ID but the `resumeStatus` option is true, it will use the session ID
      * stored in the sessionIds.json file if it exists.
      */
     connect(): void;
@@ -308,6 +308,28 @@ declare class Node {
      * @private
      */
     private handleAutoplay;
+    /**
+     * Selects a platform from the given enabled sources.
+     * @param {string[]} enabledSources - The enabled sources to select from.
+     * @returns {SearchPlatform | null} - The selected platform or null if none was found.
+     */
+    selectPlatform(enabledSources: string[]): SearchPlatform | null;
+    /**
+     * Handles Last.fm-based autoplay.
+     * @param {Player} player - The player instance.
+     * @param {Track} previousTrack - The previous track.
+     * @param {SearchPlatform} platform - The selected platform.
+     * @param {string} apiKey - The Last.fm API key.
+     * @returns {Promise<boolean>} - Whether the autoplay was successful.
+     */
+    private handlePlatformAutoplay;
+    /**
+     * Handles YouTube-based autoplay.
+     * @param {Player} player - The player instance.
+     * @param {Track} previousTrack - The previous track.
+     * @returns {Promise<boolean>} - Whether the autoplay was successful.
+     */
+    private handleYouTubeAutoplay;
     /**
      * Handles the scenario when a track fails to play or load.
      * Shifts the queue to the next track and emits a track end event.
@@ -477,21 +499,21 @@ interface NodeOptions {
     /** The password for the node. */
     password?: string;
     /** Whether the host uses SSL. */
-    useSSL?: boolean;
+    secure?: boolean;
     /** The identifier for the node. */
     identifier?: string;
-    /** The maxRetryAttempts for the node. */
-    maxRetryAttempts?: number;
-    /** The retryDelayMs for the node. */
-    retryDelayMs?: number;
+    /** The retryAmount for the node. */
+    retryAmount?: number;
+    /** The retryDelay for the node. */
+    retryDelay?: number;
     /** Whether to resume the previous session. */
-    enableSessionResumeOption?: boolean;
+    resumeStatus?: boolean;
     /** The time the lavalink server will wait before it removes the player. */
-    sessionTimeoutMs?: number;
+    resumeTimeout?: number;
     /** The timeout used for api calls. */
-    apiRequestTimeoutMs?: number;
+    requestTimeout?: number;
     /** Priority of the node. */
-    nodePriority?: number;
+    priority?: number;
 }
 interface NodeStats {
     /** The amount of players on the node. */
@@ -669,35 +691,6 @@ declare abstract class TrackUtils {
      * @returns The built Track.
      */
     static build<T = User | ClientUser>(data: TrackData, requester?: T): Track;
-}
-declare abstract class AutoPlayUtils {
-    private static manager;
-    /**
-     * Initializes the AutoPlayUtils class with the given manager.
-     * @param manager The manager instance to use.
-     * @hidden
-     */
-    static init(manager: Manager): void;
-    /**
-     * Gets recommended tracks for the given track.
-     * @param track The track to get recommended tracks for.
-     * @returns An array of recommended tracks.
-     */
-    static getRecommendedTracks(track: Track): Promise<Track[]>;
-    /**
-     * Gets recommended tracks from Last.fm for the given track.
-     * @param track The track to get recommended tracks for.
-     * @param apiKey The API key for Last.fm.
-     * @returns An array of recommended tracks.
-     */
-    static getRecommendedTracksFromLastFm(track: Track, apiKey: string): Promise<Track[]>;
-    /**
-     * Gets recommended tracks from the given source.
-     * @param track The track to get recommended tracks for.
-     * @param platform The source to get recommended tracks from.
-     * @returns An array of recommended tracks.
-     */
-    static getRecommendedTracksFromSource(track: Track, platform: string): Promise<Track[]>;
 }
 /** Gets or extends structures to extend the built in, or already extended, classes to add more functionality. */
 declare abstract class Structure {
@@ -913,11 +906,11 @@ declare class Manager extends EventEmitter {
     /**
      * Initiates the Manager class.
      * @param options
-     * @param options.enabledPlugins - An array of enabledPlugins to load.
+     * @param options.plugins - An array of plugins to load.
      * @param options.nodes - An array of node options to create nodes from.
-     * @param options.playNextOnEnd - Whether to automatically play the first track in the queue when the player is created.
-     * @param options.autoPlaySearchPlatforms - The search platform autoplay will use. Fallback to Youtube if not found.
-     * @param options.enablePriorityMode - Whether to use the priority when selecting a node to play on.
+     * @param options.autoPlay - Whether to automatically play the first track in the queue when the player is created.
+     * @param options.autoPlaySearchPlatform - The search platform autoplay will use. Fallback to Youtube if not found.
+     * @param options.usePriority - Whether to use the priority when selecting a node to play on.
      * @param options.clientName - The name of the client to send to Lavalink.
      * @param options.defaultSearchPlatform - The default search platform to use when searching for tracks.
      * @param options.useNode - The strategy to use when selecting a node to play on.
@@ -1012,10 +1005,10 @@ declare class Manager extends EventEmitter {
      */
     loadPlayerStates(nodeId: string): Promise<void>;
     /**
-     * Returns the node to use based on the configured `useNode` and `enablePriorityMode` options.
-     * If `enablePriorityMode` is true, the node is chosen based on priority, otherwise it is chosen based on the `useNode` option.
+     * Returns the node to use based on the configured `useNode` and `usePriority` options.
+     * If `usePriority` is true, the node is chosen based on priority, otherwise it is chosen based on the `useNode` option.
      * If `useNode` is "leastLoad", the node with the lowest load is chosen, if it is "leastPlayers", the node with the fewest players is chosen.
-     * If `enablePriorityMode` is false and `useNode` is not set, the node with the lowest load is chosen.
+     * If `usePriority` is false and `useNode` is not set, the node with the lowest load is chosen.
      * @returns {Node} The node to use.
      */
     get useableNode(): Node;
@@ -1129,22 +1122,17 @@ interface Payload {
     };
 }
 interface ManagerOptions {
-    /** Enable priority mode over least player count or load balancing? */
-    enablePriorityMode?: boolean;
-    /** Automatically play the next track when the current one ends. */
-    playNextOnEnd?: boolean;
-    /** An array of search platforms to use for autoplay. First to last matters
-     * Use enum `AutoPlayPlatform`.
-     */
-    autoPlaySearchPlatforms?: AutoPlayPlatform[];
+    /** Whether players should automatically play the next song. */
+    autoPlay?: boolean;
+    /** The search platform autoplay should use. Fallback to YouTube if not found.
+     * Use enum `SearchPlatform`. */
+    autoPlaySearchPlatform?: SearchPlatform;
     /** The client ID to use. */
     clientId?: string;
     /** Value to use for the `Client-Name` header. */
     clientName?: string;
     /** The array of shard IDs connected to this manager instance. */
     clusterId?: number;
-    /** List of plugins to load. */
-    enabledPlugins?: Plugin[];
     /** The default search platform to use.
      * Use enum `SearchPlatform`. */
     defaultSearchPlatform?: SearchPlatform;
@@ -1156,12 +1144,16 @@ interface ManagerOptions {
     maxPreviousTracks?: number;
     /** The array of nodes to connect to. */
     nodes?: NodeOptions[];
+    /** A array of plugins to use. */
+    plugins?: Plugin[];
     /** Whether the YouTube video titles should be replaced if the Author does not exactly match. */
-    normalizeYouTubeTitles?: boolean;
+    replaceYouTubeCredentials?: boolean;
     /** An array of track properties to keep. `track` will always be present. */
     trackPartial?: TrackPartial[];
     /** Use the least amount of players or least load? */
     useNode?: UseNodeOptions.LeastLoad | UseNodeOptions.LeastPlayers;
+    /** Use priority mode over least amount of player or load? */
+    usePriority?: boolean;
     /**
      * Function to send data to the websocket.
      * @param id The ID of the node to send the data to.
@@ -1217,14 +1209,6 @@ declare enum SearchPlatform {
     VKMusic = "vksearch",
     YouTube = "ytsearch",
     YouTubeMusic = "ytmsearch"
-}
-declare enum AutoPlayPlatform {
-    Spotify = "spotify",
-    Deezer = "deezer",
-    SoundCloud = "soundcloud",
-    Tidal = "tidal",
-    VKMusic = "vkmusic",
-    YouTube = "youtube"
 }
 declare enum PlayerStateEventTypes {
     AutoPlayChange = "playerAutoplay",
@@ -1426,7 +1410,7 @@ declare class Player {
     /** The autoplay state of the player. */
     isAutoplay: boolean;
     /** The number of times to try autoplay before emitting queueEnd. */
-    autoplayTries: number;
+    autoplayTries: number | null;
     private static _manager;
     private readonly data;
     private dynamicLoopInterval;
@@ -1541,6 +1525,20 @@ declare class Player {
      * @returns {Promise<Track[]>} - Array of recommended tracks.
      */
     getRecommendedTracks(track: Track): Promise<Track[]>;
+    /**
+     * Handles YouTube-based recommendations.
+     * @param {Track} track - The track to find recommendations for.
+     * @returns {Promise<Track[]>} - Array of recommended tracks.
+     */
+    private handleYouTubeRecommendations;
+    /**
+     * Handles Last.fm-based autoplay (or other platforms).
+     * @param {Track} track - The track to find recommendations for.
+     * @param {SearchPlatform} source - The selected search platform.
+     * @param {string} apiKey - The Last.fm API key.
+     * @returns {Promise<Track[]>} - Array of recommended tracks.
+     */
+    private handlePlatformAutoplay;
     /**
      * Sets the volume of the player.
      * @param {number} volume - The new volume. Must be between 0 and 1000.
@@ -1706,7 +1704,7 @@ interface Track {
     /** The thumbnail of the track or null if it's a unsupported source. */
     readonly thumbnail: string | null;
     /** The user that requested the track. */
-    requester?: User | ClientUser;
+    readonly requester?: User | ClientUser;
     /** Displays the track thumbnail with optional size or null if it's a unsupported source. */
     displayThumbnail(size?: Sizes): string;
     /** Additional track info provided by plugins. */
@@ -2160,5 +2158,4 @@ declare class Plugin {
     load(manager: Manager): void;
 }
 
-export { AutoPlayPlatform, AutoPlayUtils, AvailableFilters, Filters, LoadTypes, Manager, ManagerEventTypes, Node, Player, PlayerStateEventTypes, Plugin, Queue, Rest, SearchPlatform, SeverityTypes, SponsorBlockSegment, StateTypes, Structure, TrackEndReasonTypes, TrackPartial, TrackSourceTypes, TrackUtils, UseNodeOptions };
-export type { CPUStats, EqualizerBand, Exception, Extendable, FrameStats, LavalinkInfo, LavalinkResponse, LoadType, Lyrics, LyricsLine, ManagerEvents, ManagerOptions, MemoryStats, NodeMessage, NodeOptions, NodeStats, Payload, PlayOptions, PlayerEvent, PlayerEventType, PlayerEvents, PlayerOptions, PlayerUpdate, PlaylistData, PlaylistInfoData, PlaylistRawData, SearchQuery, SearchResult, Severity, Sizes, SponsorBlockChapterStarted, SponsorBlockChaptersLoaded, SponsorBlockSegmentEventType, SponsorBlockSegmentEvents, SponsorBlockSegmentSkipped, SponsorBlockSegmentsLoaded, State, Track, TrackData, TrackDataInfo, TrackEndEvent, TrackEndReason, TrackExceptionEvent, TrackPluginInfo, TrackSourceName, TrackStartEvent, TrackStuckEvent, UseNodeOption, VoicePacket, VoiceServer, VoiceState, WebSocketClosedEvent };
+export { AvailableFilters, type CPUStats, type EqualizerBand, type Exception, type Extendable, Filters, type FrameStats, type LavalinkInfo, type LavalinkResponse, type LoadType, LoadTypes, type Lyrics, type LyricsLine, Manager, ManagerEventTypes, type ManagerEvents, type ManagerOptions, type MemoryStats, Node, type NodeMessage, type NodeOptions, type NodeStats, type Payload, type PlayOptions, Player, type PlayerEvent, type PlayerEventType, type PlayerEvents, type PlayerOptions, PlayerStateEventTypes, type PlayerUpdate, type PlaylistData, type PlaylistInfoData, type PlaylistRawData, Plugin, Queue, Rest, SearchPlatform, type SearchQuery, type SearchResult, type Severity, SeverityTypes, type Sizes, type SponsorBlockChapterStarted, type SponsorBlockChaptersLoaded, SponsorBlockSegment, type SponsorBlockSegmentEventType, type SponsorBlockSegmentEvents, type SponsorBlockSegmentSkipped, type SponsorBlockSegmentsLoaded, type State, StateTypes, Structure, type Track, type TrackData, type TrackDataInfo, type TrackEndEvent, type TrackEndReason, TrackEndReasonTypes, type TrackExceptionEvent, TrackPartial, type TrackPluginInfo, type TrackSourceName, TrackSourceTypes, type TrackStartEvent, type TrackStuckEvent, TrackUtils, type UseNodeOption, UseNodeOptions, type VoicePacket, type VoiceServer, type VoiceState, type WebSocketClosedEvent };

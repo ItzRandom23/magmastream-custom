@@ -18,7 +18,7 @@ class Rest {
     manager;
     constructor(node, manager) {
         this.node = node;
-        this.url = `http${node.options.useSSL ? "s" : ""}://${node.options.host}:${node.options.port}`;
+        this.url = `http${node.options.secure ? "s" : ""}://${node.options.host}:${node.options.port}`;
         this.sessionId = node.sessionId;
         this.password = node.options.password;
         this.manager = manager;

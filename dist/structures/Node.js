@@ -4,13 +4,12 @@ exports.Node = exports.SponsorBlockSegment = void 0;
 const tslib_1 = require("tslib");
 const Utils_1 = require("./Utils");
 const Manager_1 = require("./Manager");
-const fs = require("fs");
-const path = require("path");
 const Rest_1 = require("./Rest");
 const nodeCheck_1 = tslib_1.__importDefault(require("../utils/nodeCheck"));
 const ws_1 = tslib_1.__importDefault(require("ws"));
 const fs_1 = tslib_1.__importDefault(require("fs"));
 const path_1 = tslib_1.__importDefault(require("path"));
+const axios_1 = tslib_1.__importDefault(require("axios"));
 var SponsorBlockSegment;
 (function (SponsorBlockSegment) {
     SponsorBlockSegment["Sponsor"] = "sponsor";
@@ -63,13 +62,13 @@ class Node {
         this.options = {
             port: 2333,
             password: "youshallnotpass",
-            useSSL: false,
-            maxRetryAttempts: 30,
-            retryDelayMs: 60000,
-            nodePriority: 0,
+            secure: false,
+            retryAmount: 30,
+            retryDelay: 60000,
+            priority: 0,
             ...options,
         };
-        if (this.options.useSSL) {
+        if (this.options.secure) {
             this.options.port = 443;
         }
         this.options.identifier = options.identifier || options.host;
@@ -181,7 +180,7 @@ class Node {
      * @remarks
      * If the node is already connected, this method will do nothing.
      * If the node has a session ID, it will be sent in the headers of the WebSocket connection.
-     * If the node has no session ID but the `enableSessionResumeOption` option is true, it will use the session ID
+     * If the node has no session ID but the `resumeStatus` option is true, it will use the session ID
      * stored in the sessionIds.json file if it exists.
      */
     connect() {
@@ -196,40 +195,12 @@ class Node {
         if (this.sessionId) {
             headers["Session-Id"] = this.sessionId;
         }
-        else if (this.options.enableSessionResumeOption && sessionIdsMap.has(compositeKey)) {
+        else if (this.options.resumeStatus && sessionIdsMap.has(compositeKey)) {
             this.sessionId = sessionIdsMap.get(compositeKey) || null;
             headers["Session-Id"] = this.sessionId;
         }
-        this.socket = new ws_1.default(`ws${this.options.useSSL ? "s" : ""}://${this.address}/v4/websocket`, { headers });
-        this.socket.on("open", async () => {
-            this.open();
-        
-            if (this.options.resumeStatus) {
-                await this.rest.updateSession(true, this.options.sessionTimeoutMs || 60000);
-                this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Resume activated for ${this.options.identifier}`);
-        
-                for (const [guildId, player] of this.manager.players) {
-                    if (player.node !== this) continue;
-                    if (!player.voiceSessionId || !player.voiceStateEvent) continue;
-        
-                    await this.rest.updatePlayer({
-                        guildId,
-                        data: {
-                            voice: {
-                                sessionId: player.voiceSessionId,
-                                event: player.voiceStateEvent,
-                            },
-                        },
-                    });
-        
-                    this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[RESUME] Rebound player for guild: ${guildId}`);
-                }
-            } else {
-                this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Resume is disabled for ${this.options.identifier}`);
-            }
-        });
-        
-        
+        this.socket = new ws_1.default(`ws${this.options.secure ? "s" : ""}://${this.address}/v4/websocket`, { headers });
+        this.socket.on("open", this.open.bind(this));
         this.socket.on("close", this.close.bind(this));
         this.socket.on("message", this.message.bind(this));
         this.socket.on("error", this.error.bind(this));
@@ -240,7 +211,7 @@ class Node {
             options: {
                 clientId: this.manager.options.clientId,
                 clientName: this.manager.options.clientName,
-                useSSL: this.options.useSSL,
+                secure: this.options.secure,
                 identifier: this.options.identifier,
             },
         };
@@ -309,17 +280,17 @@ class Node {
             identifier: this.options.identifier,
             connected: this.connected,
             reconnectAttempts: this.reconnectAttempts,
-            maxRetryAttempts: this.options.maxRetryAttempts,
-            retryDelayMs: this.options.retryDelayMs,
+            retryAmount: this.options.retryAmount,
+            retryDelay: this.options.retryDelay,
         };
         // Emit a debug event indicating the node is attempting to reconnect
         this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Reconnecting node: ${JSON.stringify(debugInfo)}`);
         // Schedule the reconnection attempt after the specified retry delay
         this.reconnectTimeout = setTimeout(async () => {
             // Check if the maximum number of retry attempts has been reached
-            if (this.reconnectAttempts >= this.options.maxRetryAttempts) {
+            if (this.reconnectAttempts >= this.options.retryAmount) {
                 // Emit an error event and destroy the node if retries are exhausted
-                const error = new Error(`Unable to connect after ${this.options.maxRetryAttempts} attempts.`);
+                const error = new Error(`Unable to connect after ${this.options.retryAmount} attempts.`);
                 this.manager.emit(Manager_1.ManagerEventTypes.NodeError, this, error);
                 return await this.destroy();
             }
@@ -331,7 +302,7 @@ class Node {
             this.connect();
             // Increment the reconnect attempts counter
             this.reconnectAttempts++;
-        }, this.options.retryDelayMs);
+        }, this.options.retryDelay);
     }
     /**
      * Handles the "open" event emitted by the WebSocket connection.
@@ -342,28 +313,19 @@ class Node {
      * with the node as the argument.
      */
     open() {
+        // Clear any existing reconnect timeouts
         if (this.reconnectTimeout)
             clearTimeout(this.reconnectTimeout);
-    
+        // Collect debug information regarding the current state of the node
         const debugInfo = {
             identifier: this.options.identifier,
             connected: this.connected,
-            sessionId: this.sessionId,
         };
-    
+        // Emit a debug event indicating the node is connected
         this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Connected node: ${JSON.stringify(debugInfo)}`);
+        // Emit a "nodeConnect" event with the node as the argument
         this.manager.emit(Manager_1.ManagerEventTypes.NodeConnect, this);
-    
-        if (this.options.resumeStatus && this.sessionId) {
-            const compositeKey = `${this.options.identifier}::${this.manager.options.clusterId}`;
-            sessionIdsMap.set(compositeKey, this.sessionId);
-            fs.writeFileSync(
-                path.join(__dirname, "sessionIds.json"),
-                JSON.stringify(Object.fromEntries(sessionIdsMap), null, 4)
-            );
-        }
     }
-    
     /**
      * Handles the "close" event emitted by the WebSocket connection.
      *
@@ -470,10 +432,10 @@ class Node {
                     // Load player states from the JSON file
                     await this.manager.loadPlayerStates(this.options.identifier);
                 }
-                if (this.options.enableSessionResumeOption) {
+                if (this.options.resumeStatus) {
                     await this.rest.patch(`/v4/sessions/${this.sessionId}`, {
-                        resuming: this.options.enableSessionResumeOption,
-                        timeout: this.options.sessionTimeoutMs,
+                        resuming: this.options.resumeStatus,
+                        timeout: this.options.resumeTimeout,
                     });
                 }
                 break;
@@ -575,7 +537,9 @@ class Node {
     async trackEnd(player, track, payload) {
         const { reason } = payload;
         const skipFlag = player.get("skipFlag");
-        if (!skipFlag && (player.queue.previous.length === 0 || (player.queue.previous[0] && player.queue.previous[0].track !== player.queue.current?.track))) {
+        if (!skipFlag &&
+            (player.queue.previous.length === 0 ||
+                (player.queue.previous[0] && player.queue.previous[0].track !== player.queue.current?.track))) {
             // Store the current track in the previous tracks queue
             player.queue.previous.push(player.queue.current);
             // Limit the previous tracks queue to maxPreviousTracks
@@ -640,38 +604,191 @@ class Node {
      * @private
      */
     async handleAutoplay(player, attempt = 0) {
-        if (!player.isAutoplay || attempt > player.autoplayTries || !player.queue.previous.length)
+        // If autoplay is not enabled or all attempts have failed, early exit
+        if (!player.isAutoplay || attempt === player.autoplayTries || !player.queue.previous.length)
             return false;
-    
+        // Get the Last.fm API key and the available source managers
+        const apiKey = this.manager.options.lastFmApiKey;
+        const enabledSources = this.info.sourceManagers;
+        // Determine if YouTube should be used
+        // If Last.fm is not available, use YouTube as a fallback
+        // If YouTube is available and this is the last attempt, use YouTube
+        const shouldUseYouTube = (!apiKey && enabledSources.includes("youtube")) || // Fallback to YouTube if Last.fm is not available
+            (attempt === player.autoplayTries - 1 && player.autoplayTries > 1 && enabledSources.includes("youtube")); // Use YouTube on the last attempt
         const lastTrack = player.queue.previous[player.queue.previous.length - 1];
-        if (!lastTrack) return false;
-    
-        lastTrack.requester = player.get("Internal_BotUser");
-    
-        let autoplayHistory = player.get("autoplayHistory");
-        if (!autoplayHistory) {
-            autoplayHistory = new Set();
-            player.set("autoplayHistory", autoplayHistory);
+        if (shouldUseYouTube) {
+            // Use YouTube-based autoplay
+            return await this.handleYouTubeAutoplay(player, lastTrack);
         }
-    
-        const tracks = await Utils_1.AutoPlayUtils.getRecommendedTracks(lastTrack);
-        if (!tracks?.length) return false;
-    
-        const uniqueTrack = tracks.find(track => !autoplayHistory.has(track.identifier));
-    
-        if (!uniqueTrack) {
-            return await this.handleAutoplay(player, attempt + 1); // Retry
+        // Handle Last.fm-based autoplay (or other platforms)
+        const selectedSource = this.selectPlatform(enabledSources);
+        if (selectedSource) {
+            // Use the selected source to handle autoplay
+            return await this.handlePlatformAutoplay(player, lastTrack, selectedSource, apiKey);
         }
-    
-        autoplayHistory.add(uniqueTrack.identifier);
-        player.set("autoplayHistory", autoplayHistory);
-    
-        player.queue.add(uniqueTrack);
+        // If no source is available, return false
+        return false;
+    }
+    /**
+     * Selects a platform from the given enabled sources.
+     * @param {string[]} enabledSources - The enabled sources to select from.
+     * @returns {SearchPlatform | null} - The selected platform or null if none was found.
+     */
+    selectPlatform(enabledSources) {
+        const { autoPlaySearchPlatform } = this.manager.options;
+        const platformMapping = {
+            [Manager_1.SearchPlatform.AppleMusic]: "applemusic",
+            [Manager_1.SearchPlatform.Bandcamp]: "bandcamp",
+            [Manager_1.SearchPlatform.Deezer]: "deezer",
+            [Manager_1.SearchPlatform.Jiosaavn]: "jiosaavn",
+            [Manager_1.SearchPlatform.SoundCloud]: "soundcloud",
+            [Manager_1.SearchPlatform.Spotify]: "spotify",
+            [Manager_1.SearchPlatform.Tidal]: "tidal",
+            [Manager_1.SearchPlatform.VKMusic]: "vkmusic",
+            [Manager_1.SearchPlatform.YouTube]: "youtube",
+            [Manager_1.SearchPlatform.YouTubeMusic]: "youtube",
+        };
+        // Try the autoPlaySearchPlatform first
+        if (enabledSources.includes(platformMapping[autoPlaySearchPlatform])) {
+            return autoPlaySearchPlatform;
+        }
+        // Fallback to other platforms in a predefined order
+        const fallbackPlatforms = [
+            Manager_1.SearchPlatform.Spotify,
+            Manager_1.SearchPlatform.Deezer,
+            Manager_1.SearchPlatform.SoundCloud,
+            Manager_1.SearchPlatform.AppleMusic,
+            Manager_1.SearchPlatform.Bandcamp,
+            Manager_1.SearchPlatform.Jiosaavn,
+            Manager_1.SearchPlatform.Tidal,
+            Manager_1.SearchPlatform.VKMusic,
+            Manager_1.SearchPlatform.YouTubeMusic,
+            Manager_1.SearchPlatform.YouTube,
+        ];
+        for (const platform of fallbackPlatforms) {
+            if (enabledSources.includes(platformMapping[platform])) {
+                return platform;
+            }
+        }
+        return null;
+    }
+    /**
+     * Handles Last.fm-based autoplay.
+     * @param {Player} player - The player instance.
+     * @param {Track} previousTrack - The previous track.
+     * @param {SearchPlatform} platform - The selected platform.
+     * @param {string} apiKey - The Last.fm API key.
+     * @returns {Promise<boolean>} - Whether the autoplay was successful.
+     */
+    async handlePlatformAutoplay(player, previousTrack, platform, apiKey) {
+        let { author: artist } = previousTrack;
+        const { title } = previousTrack;
+        if (!artist || !title) {
+            if (!title) {
+                // No title provided, search for the artist's top tracks
+                const noTitleUrl = `https://ws.audioscrobbler.com/2.0/?method=artist.getTopTracks&artist=${artist}&autocorrect=1&api_key=${apiKey}&format=json`;
+                const response = await axios_1.default.get(noTitleUrl);
+                if (response.data.error || !response.data.toptracks?.track?.length)
+                    return false;
+                const randomTrack = response.data.toptracks.track[Math.floor(Math.random() * response.data.toptracks.track.length)];
+                const res = await player.search({ query: `${randomTrack.artist.name} - ${randomTrack.name}`, source: platform }, player.get("Internal_BotUser"));
+                if (res.loadType === Utils_1.LoadTypes.Empty || res.loadType === Utils_1.LoadTypes.Error)
+                    return false;
+                const foundTrack = res.tracks.find((t) => t.uri !== previousTrack.uri);
+                if (!foundTrack)
+                    return false;
+                player.queue.add(foundTrack);
+                await player.play();
+                return true;
+            }
+            if (!artist) {
+                // No artist provided, search for the track title
+                const noArtistUrl = `https://ws.audioscrobbler.com/2.0/?method=track.search&track=${title}&api_key=${apiKey}&format=json`;
+                const response = await axios_1.default.get(noArtistUrl);
+                artist = response.data.results.trackmatches?.track?.[0]?.artist;
+                if (!artist)
+                    return false;
+            }
+        }
+        // Search for similar tracks to the current track
+        const url = `https://ws.audioscrobbler.com/2.0/?method=track.getSimilar&artist=${artist}&track=${title}&limit=10&autocorrect=1&api_key=${apiKey}&format=json`;
+        let response;
+        try {
+            response = await axios_1.default.get(url);
+        }
+        catch (error) {
+            if (error)
+                return false;
+        }
+        if (response.data.error || !response.data.similartracks?.track?.length) {
+            // Retry the request if the first attempt fails
+            const retryUrl = `https://ws.audioscrobbler.com/2.0/?method=artist.getTopTracks&artist=${artist}&autocorrect=1&api_key=${apiKey}&format=json`;
+            const retryResponse = await axios_1.default.get(retryUrl);
+            if (retryResponse.data.error || !retryResponse.data.toptracks?.track?.length)
+                return false;
+            const randomTrack = retryResponse.data.toptracks.track[Math.floor(Math.random() * retryResponse.data.toptracks.track.length)];
+            const res = await player.search({ query: `${randomTrack.artist.name} - ${randomTrack.name}`, source: platform }, player.get("Internal_BotUser"));
+            if (res.loadType === Utils_1.LoadTypes.Empty || res.loadType === Utils_1.LoadTypes.Error)
+                return false;
+            const foundTrack = res.tracks.find((t) => t.uri !== previousTrack.uri);
+            if (!foundTrack)
+                return false;
+            player.queue.add(foundTrack);
+            await player.play();
+            return true;
+        }
+        const randomTrack = response.data.similartracks.track[Math.floor(Math.random() * response.data.similartracks.track.length)];
+        const res = await player.search({ query: `${randomTrack.artist.name} - ${randomTrack.name}`, source: platform }, player.get("Internal_BotUser"));
+        if (res.loadType === Utils_1.LoadTypes.Empty || res.loadType === Utils_1.LoadTypes.Error)
+            return false;
+        const foundTrack = res.tracks.find((t) => t.uri !== previousTrack.uri);
+        if (!foundTrack)
+            return false;
+        player.queue.add(foundTrack);
         await player.play();
         return true;
     }
-    
-    
+    /**
+     * Handles YouTube-based autoplay.
+     * @param {Player} player - The player instance.
+     * @param {Track} previousTrack - The previous track.
+     * @returns {Promise<boolean>} - Whether the autoplay was successful.
+     */
+    async handleYouTubeAutoplay(player, previousTrack) {
+        // Check if the previous track has a YouTube URL
+        const hasYouTubeURL = ["youtube.com", "youtu.be"].some((url) => previousTrack.uri.includes(url));
+        // Get the video ID from the previous track's URL
+        const videoID = hasYouTubeURL
+            ? previousTrack.uri.split("=").pop()
+            : (await this.manager.search({ query: `${previousTrack.author} - ${previousTrack.title}`, source: Manager_1.SearchPlatform.YouTube }, player.get("Internal_BotUser"))).tracks[0]?.uri
+                .split("=")
+                .pop();
+        // If the video ID is not found, return false
+        if (!videoID)
+            return false;
+        // Get a random video index between 2 and 24
+        let randomIndex;
+        let searchURI;
+        do {
+            // Generate a random index between 2 and 24
+            randomIndex = Math.floor(Math.random() * 23) + 2;
+            // Build the search URI
+            searchURI = `https://www.youtube.com/watch?v=${videoID}&list=RD${videoID}&index=${randomIndex}`;
+        } while (previousTrack.uri.includes(searchURI));
+        // Search for the video and return false if the search fails
+        const res = await this.manager.search({ query: searchURI, source: Manager_1.SearchPlatform.YouTube }, player.get("Internal_BotUser"));
+        if (res.loadType === Utils_1.LoadTypes.Empty || res.loadType === Utils_1.LoadTypes.Error)
+            return false;
+        // Find a track that is not the same as the current track
+        const foundTrack = res.tracks.find((t) => t.uri !== previousTrack.uri && t.author !== previousTrack.author && t.title !== previousTrack.title);
+        // If no track is found, return false
+        if (!foundTrack)
+            return false;
+        // Add the found track to the queue and play it
+        player.queue.add(foundTrack);
+        await player.play();
+        return true;
+    }
     /**
      * Handles the scenario when a track fails to play or load.
      * Shifts the queue to the next track and emits a track end event.
@@ -691,7 +808,7 @@ class Node {
             return;
         }
         this.manager.emit(Manager_1.ManagerEventTypes.TrackEnd, player, track, payload);
-        if (this.manager.options.playNextOnEnd)
+        if (this.manager.options.autoPlay)
             await player.play();
     }
     /**
@@ -708,7 +825,7 @@ class Node {
      */
     async handleRepeatedTrack(player, track, payload) {
         const { queue, trackRepeat, queueRepeat } = player;
-        const { playNextOnEnd } = this.manager.options;
+        const { autoPlay } = this.manager.options;
         if (trackRepeat) {
             // Prevent duplicate repeat insertion
             if (queue[0] !== queue.current) {
@@ -731,7 +848,7 @@ class Node {
             return;
         }
         // If autoplay is enabled, play the next track
-        if (playNextOnEnd)
+        if (autoPlay)
             await player.play();
     }
     /**
@@ -751,7 +868,7 @@ class Node {
         // Emit the track end event
         this.manager.emit(Manager_1.ManagerEventTypes.TrackEnd, player, track, payload);
         // If autoplay is enabled, play the next track
-        if (this.manager.options.playNextOnEnd)
+        if (this.manager.options.autoPlay)
             await player.play();
     }
     /**
@@ -770,13 +887,13 @@ class Node {
             this.manager.emit(Manager_1.ManagerEventTypes.QueueEnd, player, track, payload);
             return;
         }
-        let attempt = 1;
+        let attempts = 1;
         let success = false;
-        while (attempt <= player.autoplayTries) {
-            success = await this.handleAutoplay(player, attempt);
+        while (attempts <= player.autoplayTries) {
+            success = await this.handleAutoplay(player, attempts);
             if (success)
                 return;
-            attempt++;
+            attempts++;
         }
         // If all attempts fail, reset the player state and emit queueEnd
         player.playing = false;
