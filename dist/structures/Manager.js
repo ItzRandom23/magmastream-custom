@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ManagerEventTypes = exports.PlayerStateEventTypes = exports.SearchPlatform = exports.UseNodeOptions = exports.TrackPartial = exports.Manager = void 0;
+exports.ManagerEventTypes = exports.PlayerStateEventTypes = exports.AutoPlayPlatform = exports.SearchPlatform = exports.UseNodeOptions = exports.TrackPartial = exports.Manager = void 0;
 const tslib_1 = require("tslib");
 const Utils_1 = require("./Utils");
 const collection_1 = require("@discordjs/collection");
@@ -24,11 +24,11 @@ class Manager extends events_1.EventEmitter {
     /**
      * Initiates the Manager class.
      * @param options
-     * @param options.plugins - An array of plugins to load.
+     * @param options.enabledPlugins - An array of enabledPlugins to load.
      * @param options.nodes - An array of node options to create nodes from.
-     * @param options.autoPlay - Whether to automatically play the first track in the queue when the player is created.
-     * @param options.autoPlaySearchPlatform - The search platform autoplay will use. Fallback to Youtube if not found.
-     * @param options.usePriority - Whether to use the priority when selecting a node to play on.
+     * @param options.playNextOnEnd - Whether to automatically play the first track in the queue when the player is created.
+     * @param options.autoPlaySearchPlatforms - The search platform autoplay will use. Fallback to Youtube if not found.
+     * @param options.enablePriorityMode - Whether to use the priority when selecting a node to play on.
      * @param options.clientName - The name of the client to send to Lavalink.
      * @param options.defaultSearchPlatform - The default search platform to use when searching for tracks.
      * @param options.useNode - The strategy to use when selecting a node to play on.
@@ -42,25 +42,25 @@ class Manager extends events_1.EventEmitter {
         Utils_1.Structure.get("Player").init(this);
         Utils_1.Structure.get("Node").init(this);
         Utils_1.TrackUtils.init(this);
+        Utils_1.AutoPlayUtils.init(this);
         if (options.trackPartial) {
             Utils_1.TrackUtils.setTrackPartial(options.trackPartial);
             delete options.trackPartial;
         }
         this.options = {
-            plugins: [],
+            enabledPlugins: [],
             nodes: [
                 {
                     identifier: "default",
                     host: "localhost",
-                    resumeStatus: false,
-                    resumeTimeout: 1000,
+                    enableSessionResumeOption: false,
+                    sessionTimeoutMs: 1000,
                 },
             ],
-            autoPlay: true,
-            usePriority: false,
+            playNextOnEnd: true,
+            enablePriorityMode: false,
             clientName: "Magmastream",
             defaultSearchPlatform: SearchPlatform.YouTube,
-            autoPlaySearchPlatform: SearchPlatform.YouTube,
             useNode: UseNodeOptions.LeastPlayers,
             maxPreviousTracks: options.maxPreviousTracks ?? 20,
             ...options,
@@ -124,8 +124,8 @@ class Manager extends events_1.EventEmitter {
                 this.emit(ManagerEventTypes.NodeError, node, err);
             }
         }
-        if (this.options.plugins) {
-            for (const [index, plugin] of this.options.plugins.entries()) {
+        if (this.options.enabledPlugins) {
+            for (const [index, plugin] of this.options.enabledPlugins.entries()) {
                 if (!(plugin instanceof __1.Plugin))
                     throw new RangeError(`Plugin at index ${index} does not extend Plugin.`);
                 plugin.load(this);
@@ -207,7 +207,6 @@ class Manager extends events_1.EventEmitter {
     
         throw new Error(`All search platforms failed for query: ${_query.query}`);
     }
-    
     /**
      * Creates a player or returns one if it already exists.
      * @param options The options to create the player with.
@@ -401,6 +400,7 @@ class Manager extends events_1.EventEmitter {
                             voiceChannelId: state.options.voiceChannelId,
                             selfDeafen: state.options.selfDeafen,
                             volume: lavaPlayer.volume || state.options.volume,
+                            node: nodeId,
                         };
                         this.emit(ManagerEventTypes.Debug, `[MANAGER] Recreating player: ${state.guildId} from saved file: ${JSON.stringify(state.options)}`);
                         const player = this.create(playerOptions);
@@ -456,7 +456,6 @@ class Manager extends events_1.EventEmitter {
                         }
                         else {
                             player.paused = false;
-                            player.playing = true;
                         }
                         if (state.trackRepeat)
                             player.setTrackRepeat(true);
@@ -539,14 +538,14 @@ class Manager extends events_1.EventEmitter {
         this.emit(ManagerEventTypes.Debug, "[MANAGER] Finished loading saved players.");
     }
     /**
-     * Returns the node to use based on the configured `useNode` and `usePriority` options.
-     * If `usePriority` is true, the node is chosen based on priority, otherwise it is chosen based on the `useNode` option.
+     * Returns the node to use based on the configured `useNode` and `enablePriorityMode` options.
+     * If `enablePriorityMode` is true, the node is chosen based on priority, otherwise it is chosen based on the `useNode` option.
      * If `useNode` is "leastLoad", the node with the lowest load is chosen, if it is "leastPlayers", the node with the fewest players is chosen.
-     * If `usePriority` is false and `useNode` is not set, the node with the lowest load is chosen.
+     * If `enablePriorityMode` is false and `useNode` is not set, the node with the lowest load is chosen.
      * @returns {Node} The node to use.
      */
     get useableNode() {
-        return this.options.usePriority
+        return this.options.enablePriorityMode
             ? this.priorityNode
             : this.options.useNode === UseNodeOptions.LeastLoad
                 ? this.leastLoadNode.first()
@@ -859,13 +858,13 @@ class Manager extends events_1.EventEmitter {
      */
     get priorityNode() {
         // Filter out nodes that are not connected or have a priority of 0
-        const filteredNodes = this.nodes.filter((node) => node.connected && node.options.priority > 0);
+        const filteredNodes = this.nodes.filter((node) => node.connected && node.options.nodePriority > 0);
         // Calculate the total weight
-        const totalWeight = filteredNodes.reduce((total, node) => total + node.options.priority, 0);
+        const totalWeight = filteredNodes.reduce((total, node) => total + node.options.nodePriority, 0);
         // Map the nodes to their weights
         const weightedNodes = filteredNodes.map((node) => ({
             node,
-            weight: node.options.priority / totalWeight,
+            weight: node.options.nodePriority / totalWeight,
         }));
         // Generate a random number between 0 and 1
         const randomNumber = Math.random();
@@ -934,6 +933,15 @@ var SearchPlatform;
     SearchPlatform["YouTube"] = "ytsearch";
     SearchPlatform["YouTubeMusic"] = "ytmsearch";
 })(SearchPlatform || (exports.SearchPlatform = SearchPlatform = {}));
+var AutoPlayPlatform;
+(function (AutoPlayPlatform) {
+    AutoPlayPlatform["Spotify"] = "spotify";
+    AutoPlayPlatform["Deezer"] = "deezer";
+    AutoPlayPlatform["SoundCloud"] = "soundcloud";
+    AutoPlayPlatform["Tidal"] = "tidal";
+    AutoPlayPlatform["VKMusic"] = "vkmusic";
+    AutoPlayPlatform["YouTube"] = "youtube";
+})(AutoPlayPlatform || (exports.AutoPlayPlatform = AutoPlayPlatform = {}));
 var PlayerStateEventTypes;
 (function (PlayerStateEventTypes) {
     PlayerStateEventTypes["AutoPlayChange"] = "playerAutoplay";
