@@ -154,6 +154,7 @@ class Manager extends events_1.EventEmitter {
             deezer: "dzsearch",
             spotify: "spsearch",
             applemusic: "amsearch",
+            qobuz: "qbsearch",
             tidal: "tdsearch",
         };
     
@@ -928,6 +929,7 @@ var SearchPlatform;
     SearchPlatform["Jiosaavn"] = "jssearch";
     SearchPlatform["SoundCloud"] = "scsearch";
     SearchPlatform["Spotify"] = "spsearch";
+    SearchPlatform["Qobuz"] = "qbsearch";
     SearchPlatform["Tidal"] = "tdsearch";
     SearchPlatform["VKMusic"] = "vksearch";
     SearchPlatform["YouTube"] = "ytsearch";

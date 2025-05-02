@@ -1213,6 +1213,7 @@ declare enum SearchPlatform {
     Jiosaavn = "jssearch",
     SoundCloud = "scsearch",
     Spotify = "spsearch",
+    Qobuz = "qbsearch",
     Tidal = "tdsearch",
     VKMusic = "vksearch",
     YouTube = "ytsearch",
