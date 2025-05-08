@@ -265,14 +265,6 @@ class AutoPlayUtils {
             case "spotify":
                 {
                     try {
-                        if (!track.uri.includes("spotify")) {
-                            const res = await this.manager.search({ query: `${track.author} - ${track.title}`, source: Manager_1.SearchPlatform.Spotify }, track.requester);
-                            if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) return [];
-                            if (res.loadType === LoadTypes.Playlist) res.tracks = res.playlist.tracks;
-                            if (!res.tracks.length) return [];
-                            track = res.tracks[0];
-                        }
-
                         const { Id, Secret } = this.manager.options.spotify || {};
                         if (!Id || !Secret) {
                             console.warn("[AutoPlay] Spotify Id/Secret not configured in Manager options.");
@@ -299,10 +291,32 @@ class AutoPlayUtils {
                             return [];
                         }
 
-                        // Get recommendations using the seed track
+
+                        if (!track.uri.includes("spotify")) {
+                            const response = await fetch(`https://api.spotify.com/v1/search?q=${track.author}+${track.title}&type=track`, {
+                                headers: {
+                                    Authorization: `Bearer ${token}`,
+                                    "Content-Type": "application/json"
+                                }
+                            });
+
+                            const data = await response.json();
+
+                           
+                            if (data.tracks && data.tracks.items.length > 0) {
+                                // Save the track ID from the first result
+                                const trackId = data.tracks.items[0].id;
+                                console.log("Saved Track ID:", trackId); // Log for confirmation
+                                // Here you can save or use the trackId as needed
+                            } else {
+                                console.log("No tracks found for the query.");
+                            }
+                        }
+
                         let json;
                         try {
-                            const response = await fetch(`https://api.spotify.com/v1/recommendations?limit=10&seed_tracks=${track.identifier}`, {
+                            trackid = track.identifier || trackId
+                            const response = await fetch(`https://api.spotify.com/v1/recommendations?limit=10&seed_tracks=${trackid}`, {
                                 headers: {
                                     Authorization: `Bearer ${token}`,
                                     "Content-Type": "application/json"
