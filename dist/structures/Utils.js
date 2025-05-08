@@ -6,6 +6,7 @@ const Manager_1 = require("./Manager");
 const axios_1 = tslib_1.__importDefault(require("axios"));
 const jsdom_1 = require("jsdom");
 const crypto_1 = tslib_1.__importDefault(require("crypto"));
+const fetch = require("node-fetch");
 /** @hidden */
 const SIZES = ["0", "1", "2", "3", "default", "mqdefault", "hqdefault", "maxresdefault"];
 class TrackUtils {
@@ -266,86 +267,73 @@ class AutoPlayUtils {
                     try {
                         if (!track.uri.includes("spotify")) {
                             const res = await this.manager.search({ query: `${track.author} - ${track.title}`, source: Manager_1.SearchPlatform.Spotify }, track.requester);
-                            if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) {
-                                return [];
-                            }
-                            if (res.loadType === LoadTypes.Playlist) {
-                                res.tracks = res.playlist.tracks;
-                            }
-                            if (!res.tracks.length) {
-                                return [];
-                            }
+                            if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) return [];
+                            if (res.loadType === LoadTypes.Playlist) res.tracks = res.playlist.tracks;
+                            if (!res.tracks.length) return [];
                             track = res.tracks[0];
                         }
-                        const TOTP_SECRET = new Uint8Array([
-                            53, 53, 48, 55, 49, 52, 53, 56, 53, 51, 52, 56, 55, 52, 57, 57, 53, 57, 50, 50, 52, 56, 54, 51, 48, 51, 50, 57, 51, 52, 55,
-                        ]);
-                        const hmac = crypto_1.default.createHmac("sha1", TOTP_SECRET);
-                        function generateTotp() {
-                            const counter = Math.floor(Date.now() / 30000);
-                            const counterBuffer = Buffer.alloc(8);
-                            counterBuffer.writeBigInt64BE(BigInt(counter));
-                            hmac.update(counterBuffer);
-                            const hmacResult = hmac.digest();
-                            const offset = hmacResult[hmacResult.length - 1] & 15;
-                            const truncatedValue = ((hmacResult[offset] & 127) << 24) | ((hmacResult[offset + 1] & 255) << 16) | ((hmacResult[offset + 2] & 255) << 8) | (hmacResult[offset + 3] & 255);
-                            const totp = (truncatedValue % 1000000).toString().padStart(6, "0");
-                            return [totp, counter * 30000];
-                        }
-                        const [totp, timestamp] = generateTotp();
-                        const params = {
-                            reason: "transport",
-                            productType: "embed",
-                            totp: totp,
-                            totpVer: 5,
-                            ts: timestamp,
-                        };
-                        let body;
-                        try {
-                            const response = await axios_1.default.get("https://open.spotify.com/get_access_token", { params });
-                            body = response.data;
-                        }
-                        catch (error) {
-                            console.error("[AutoPlay] Failed to get spotify access token:", error.response?.status, error.response?.data || error.message);
+
+                        const { Id, Secret } = this.manager.options.spotify || {};
+                        if (!Id || !Secret) {
+                            console.warn("[AutoPlay] Spotify Id/Secret not configured in Manager options.");
                             return [];
                         }
+
+                        // Get access token via client credentials
+                        let token;
+                        try {
+                            const authRes = await fetch("https://accounts.spotify.com/api/token", {
+                                method: "POST",
+                                headers: {
+                                    Authorization: `Basic ${Buffer.from(`${Id}:${Secret}`).toString("base64")}`,
+                                    "Content-Type": "application/x-www-form-urlencoded"
+                                },
+                                body: "grant_type=client_credentials"
+                            });
+
+                            const data = await authRes.json();
+                            token = data.access_token;
+                            if (!token) throw new Error("No access token returned");
+                        } catch (err) {
+                            console.error("[AutoPlay] Failed to get Spotify access token:", err);
+                            return [];
+                        }
+
+                        // Get recommendations using the seed track
                         let json;
                         try {
-                            const response = await axios_1.default.get(`https://api.spotify.com/v1/recommendations`, {
-                                params: { limit: 10, seed_tracks: track.identifier },
+                            const response = await fetch(`https://api.spotify.com/v1/recommendations?limit=10&seed_tracks=${track.identifier}`, {
                                 headers: {
-                                    Authorization: `Bearer ${body.accessToken}`,
-                                    "Content-Type": "application/json",
-                                },
+                                    Authorization: `Bearer ${token}`,
+                                    "Content-Type": "application/json"
+                                }
                             });
-                            json = response.data;
-                        }
-                        catch (error) {
-                            console.error("[AutoPlay] Failed to fetch spotify recommendations:", error.response?.status, error.response?.data || error.message);
+                            json = await response.json();
+                        } catch (err) {
+                            console.error("[AutoPlay] Failed to fetch Spotify recommendations:", err);
                             return [];
                         }
-                        if (!json.tracks || !json.tracks.length) {
-                            return [];
-                        }
+
+                        if (!json.tracks || !json.tracks.length) return [];
+
                         const recommendedTrackId = json.tracks[Math.floor(Math.random() * json.tracks.length)].id;
-                        const res = await this.manager.search({ query: `https://open.spotify.com/track/${recommendedTrackId}`, source: Manager_1.SearchPlatform.Spotify }, track.requester);
-                        if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) {
-                            return [];
-                        }
-                        if (res.loadType === LoadTypes.Playlist) {
-                            res.tracks = res.playlist.tracks;
-                        }
-                        if (!res.tracks.length) {
-                            return [];
-                        }
+                        const res = await this.manager.search({
+                            query: `https://open.spotify.com/track/${recommendedTrackId}`,
+                            source: Manager_1.SearchPlatform.Spotify
+                        }, track.requester);
+
+                        if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) return [];
+                        if (res.loadType === LoadTypes.Playlist) res.tracks = res.playlist.tracks;
+                        if (!res.tracks.length) return [];
+
                         return res.tracks;
-                    }
-                    catch (error) {
-                        console.error("[AutoPlay] Unexpected spotify error:", error.message || error);
+                    } catch (error) {
+                        console.error("[AutoPlay] Unexpected Spotify error:", error.message || error);
                         return [];
                     }
                 }
                 break;
+
             case "deezer":
                 {
                     if (!track.uri.includes("deezer")) {
@@ -436,10 +424,10 @@ class AutoPlayUtils {
                         }
                         const urls = Array.from(articleElements)
                             .map((articleElement) => {
-                            const h2Element = articleElement.querySelector('h2[itemprop="name"]');
-                            const aElement = h2Element?.querySelector('a[itemprop="url"]');
-                            return aElement ? `https://soundcloud.com${aElement.getAttribute("href")}` : null;
-                        })
+                                const h2Element = articleElement.querySelector('h2[itemprop="name"]');
+                                const aElement = h2Element?.querySelector('a[itemprop="url"]');
+                                return aElement ? `https://soundcloud.com${aElement.getAttribute("href")}` : null;
+                            })
                             .filter(Boolean);
                         if (!urls.length) {
                             return [];

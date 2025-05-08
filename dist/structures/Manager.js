@@ -58,6 +58,10 @@ class Manager extends events_1.EventEmitter {
                 },
             ],
             playNextOnEnd: true,
+            spotify: {
+                Id: "fa7e3599e8ab4134a1313af2c1a6c401",
+                Secret: "4a6e012beb0a4ff79a366c94c075594f",
+            },
             enablePriorityMode: false,
             clientName: "Magmastream",
             defaultSearchPlatform: SearchPlatform.YouTube,
@@ -144,9 +148,9 @@ class Manager extends events_1.EventEmitter {
     async search(query, requester, sourcePlatforms) {
         const node = this.useableNode;
         if (!node) throw new Error("No available nodes.");
-    
+
         const _query = typeof query === "string" ? { query } : query;
-    
+
         const sourcePrefixMap = {
             youtube: "ytsearch",
             ytmusic: "ytmsearch",
@@ -157,26 +161,26 @@ class Manager extends events_1.EventEmitter {
             qobuz: "qbsearch",
             tidal: "tdsearch",
         };
-    
+
         const platforms = Array.isArray(sourcePlatforms)
             ? sourcePlatforms
             : [sourcePlatforms ?? _query.source ?? this.options.defaultSearchPlatform];
-    
+
         for (const platform of platforms) {
             const prefix = sourcePrefixMap[platform.toLowerCase()] ?? platform;
             const searchString = /^https?:\/\//.test(_query.query)
                 ? _query.query
                 : `${prefix}:${_query.query}`;
-    
+
             this.emit(ManagerEventTypes.Debug, `[MANAGER] Trying ${prefix} for: ${_query.query}`);
-    
+
             try {
                 const res = await node.rest.get(`/v4/loadtracks?identifier=${encodeURIComponent(searchString)}`);
                 if (!res || res.loadType === Utils_1.LoadTypes.Empty || res.loadType === Utils_1.LoadTypes.Error) continue;
-    
+
                 let tracks = [];
                 let playlist = null;
-    
+
                 switch (res.loadType) {
                     case Utils_1.LoadTypes.Search:
                         tracks = res.data.map((track) => Utils_1.TrackUtils.build(track, requester));
@@ -196,7 +200,7 @@ class Manager extends events_1.EventEmitter {
                         };
                         break;
                 }
-    
+
                 const result = { loadType: res.loadType, tracks, playlist };
                 this.emit(ManagerEventTypes.Debug, `[MANAGER] Success on ${platform}: ${_query.query}`);
                 return result;
@@ -205,7 +209,7 @@ class Manager extends events_1.EventEmitter {
                 continue;
             }
         }
-    
+
         throw new Error(`Not able to resolve ${_query.query}`);
     }
     /**
@@ -831,11 +835,11 @@ class Manager extends events_1.EventEmitter {
         return this.nodes
             .filter((node) => node.connected)
             .sort((a, b) => {
-            const aload = a.stats.cpu ? (a.stats.cpu.lavalinkLoad / a.stats.cpu.cores) * 100 : 0;
-            const bload = b.stats.cpu ? (b.stats.cpu.lavalinkLoad / b.stats.cpu.cores) * 100 : 0;
-            // Sort the nodes by their load in ascending order
-            return aload - bload;
-        });
+                const aload = a.stats.cpu ? (a.stats.cpu.lavalinkLoad / a.stats.cpu.cores) * 100 : 0;
+                const bload = b.stats.cpu ? (b.stats.cpu.lavalinkLoad / b.stats.cpu.cores) * 100 : 0;
+                // Sort the nodes by their load in ascending order
+                return aload - bload;
+            });
     }
     /**
      * Returns the nodes that have the least amount of players.
