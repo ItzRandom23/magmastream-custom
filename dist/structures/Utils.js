@@ -228,7 +228,7 @@ class AutoPlayUtils {
                 return [];
             }
             const randomTrack = retryResponse.data.toptracks.track[Math.floor(Math.random() * retryResponse.data.toptracks.track.length)];
-            const res = await this.manager.search({ query: `${randomTrack.name} ${randomTrack.artist.name}`, source: this.manager.options.defaultSearchPlatform }, track.requester);
+            const res = await this.manager.search({ query: `${randomTrack.artist.name} - ${randomTrack.name}`, source: this.manager.options.defaultSearchPlatform }, track.requester);
             if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) {
                 return [];
             }
@@ -242,7 +242,7 @@ class AutoPlayUtils {
         if (!randomTrack) {
             return [];
         }
-        const res = await this.manager.search({ query: `${randomTrack.name} ${randomTrack.artist.name}`, source: this.manager.options.defaultSearchPlatform }, track.requester);
+        const res = await this.manager.search({ query: `${randomTrack.artist.name} - ${randomTrack.name}`, source: this.manager.options.defaultSearchPlatform }, track.requester);
         if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) {
             return [];
         }
@@ -265,7 +265,7 @@ class AutoPlayUtils {
                 {
                     try {
                         if (!track.uri.includes("spotify")) {
-                            const res = await this.manager.search({ query: `${track.title} ${track.author}`, source: Manager_1.SearchPlatform.Spotify }, track.requester);
+                            const res = await this.manager.search({ query: `${track.author} - ${track.title}`, source: Manager_1.SearchPlatform.Spotify }, track.requester);
                             if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) {
                                 return [];
                             }
@@ -349,7 +349,7 @@ class AutoPlayUtils {
             case "deezer":
                 {
                     if (!track.uri.includes("deezer")) {
-                        const res = await this.manager.search({ query: `${track.title} ${track.author}`, source: Manager_1.SearchPlatform.Deezer }, track.requester);
+                        const res = await this.manager.search({ query: `${track.author} - ${track.title}`, source: Manager_1.SearchPlatform.Deezer }, track.requester);
                         if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) {
                             return [];
                         }
@@ -405,7 +405,7 @@ class AutoPlayUtils {
             case "soundcloud":
                 {
                     if (!track.uri.includes("soundcloud")) {
-                        const res = await this.manager.search({ query: `${track.title} ${track.author}`, source: Manager_1.SearchPlatform.SoundCloud }, track.requester);
+                        const res = await this.manager.search({ query: `${track.author} - ${track.title}`, source: Manager_1.SearchPlatform.SoundCloud }, track.requester);
                         if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) {
                             return [];
                         }

@@ -939,8 +939,6 @@ var AutoPlayPlatform;
 (function (AutoPlayPlatform) {
     AutoPlayPlatform["Spotify"] = "spotify";
     AutoPlayPlatform["Deezer"] = "deezer";
-    AutoPlayPlatform["AppleMusic"] = "applemusic";
-    AutoPlayPlatform["Jiosaavn"] = "jiosaavn";
     AutoPlayPlatform["SoundCloud"] = "soundcloud";
     AutoPlayPlatform["Tidal"] = "tidal";
     AutoPlayPlatform["VKMusic"] = "vkmusic";
