@@ -206,7 +206,7 @@ class Manager extends events_1.EventEmitter {
             }
         }
     
-        throw new Error(`All search platforms failed for query: ${_query.query}`);
+        throw new Error(`Not able to resolve ${_query.query}`);
     }
     /**
      * Creates a player or returns one if it already exists.
@@ -939,6 +939,8 @@ var AutoPlayPlatform;
 (function (AutoPlayPlatform) {
     AutoPlayPlatform["Spotify"] = "spotify";
     AutoPlayPlatform["Deezer"] = "deezer";
+    AutoPlayPlatform["AppleMusic"] = "applemusic";
+    AutoPlayPlatform["Jiosaavn"] = "jiosaavn";
     AutoPlayPlatform["SoundCloud"] = "soundcloud";
     AutoPlayPlatform["Tidal"] = "tidal";
     AutoPlayPlatform["VKMusic"] = "vkmusic";
