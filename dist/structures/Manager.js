@@ -143,52 +143,51 @@ class Manager extends events_1.EventEmitter {
      * @returns The search result.
      */
     async search(query, requester, sourcePlatforms) {
-    const node = this.useableNode;
-    if (!node) throw new Error("No available nodes.");
+        const node = this.useableNode;
+        if (!node) throw new Error("No available nodes.");
 
-    const _query = typeof query === "string" ? { query } : query;
+        const _query = typeof query === "string" ? { query } : query;
 
-    const sourcePrefixMap = {
-        youtube: "ytsearch",
-        ytmusic: "ytmsearch",
-        soundcloud: "scsearch",
-        deezer: "dzsearch",
-        spotify: "spsearch",
-        jiosaavn: "jssearch",
-        applemusic: "amsearch",
-        qobuz: "qbsearch",
-        tidal: "tdsearch",
-    };
+        const sourcePrefixMap = {
+            youtube: "ytsearch",
+            ytmusic: "ytmsearch",
+            soundcloud: "scsearch",
+            deezer: "dzsearch",
+            spotify: "spsearch",
+            applemusic: "amsearch",
+            qobuz: "qbsearch",
+            tidal: "tdsearch",
+        };
 
-    const platforms = Array.isArray(sourcePlatforms)
-        ? sourcePlatforms
-        : [sourcePlatforms ?? _query.source ?? this.options.defaultSearchPlatform];
+        const platforms = Array.isArray(sourcePlatforms)
+            ? sourcePlatforms
+            : [sourcePlatforms ?? _query.source ?? this.options.defaultSearchPlatform];
 
-    for (const platform of platforms) {
-        const lowerPlatform = platform.toLowerCase();
+        for (const platform of platforms) {
+            const prefix = sourcePrefixMap[platform.toLowerCase()] ?? platform;
+            console.log(platform)
+            const searchString = /^https?:\/\//.test(_query.query)
+                ? _query.query
+                : `${prefix}:${_query.query}`;
 
-        if (lowerPlatform === "jiosaavn") {
+            this.emit(ManagerEventTypes.Debug, `[MANAGER] Trying ${prefix} for: ${_query.query}`);
+
             try {
-                const res = await fetch(`https://jiosaavn-flame.vercel.app/api/search?q=${encodeURIComponent(_query.query)}`);
-                const data = await res.json();
-                if (!data?.results?.length) continue;
-
-                const firstUri = data.results[0].uri;
-                const lavalinkRes = await node.rest.get(`/v4/loadtracks?identifier=${encodeURIComponent(firstUri)}`);
-                if (!lavalinkRes || lavalinkRes.loadType === Utils_1.LoadTypes.Empty || lavalinkRes.loadType === Utils_1.LoadTypes.Error) continue;
+                const res = await node.rest.get(`/v4/loadtracks?identifier=${encodeURIComponent(searchString)}`);
+                if (!res || res.loadType === Utils_1.LoadTypes.Empty || res.loadType === Utils_1.LoadTypes.Error) continue;
 
                 let tracks = [];
                 let playlist = null;
 
-                switch (lavalinkRes.loadType) {
+                switch (res.loadType) {
                     case Utils_1.LoadTypes.Search:
-                        tracks = lavalinkRes.data.map((track) => Utils_1.TrackUtils.build(track, requester));
+                        tracks = res.data.map((track) => Utils_1.TrackUtils.build(track, requester));
                         break;
                     case Utils_1.LoadTypes.Track:
-                        tracks = [Utils_1.TrackUtils.build(lavalinkRes.data, requester)];
+                        tracks = [Utils_1.TrackUtils.build(res.data, requester)];
                         break;
                     case Utils_1.LoadTypes.Playlist:
-                        const playlistData = lavalinkRes.data;
+                        const playlistData = res.data;
                         tracks = playlistData.tracks.map((track) => Utils_1.TrackUtils.build(track, requester));
                         playlist = {
                             name: playlistData.info.name,
@@ -200,60 +199,17 @@ class Manager extends events_1.EventEmitter {
                         break;
                 }
 
-                const result = { loadType: lavalinkRes.loadType, tracks, playlist };
-                this.emit(ManagerEventTypes.Debug, `[MANAGER] Success on jiosaavn: ${_query.query}`);
+                const result = { loadType: res.loadType, tracks, playlist };
+                this.emit(ManagerEventTypes.Debug, `[MANAGER] Success on ${platform}: ${_query.query}`);
                 return result;
             } catch (err) {
-                this.emit(ManagerEventTypes.Debug, `[MANAGER] Failed on jiosaavn: ${err.message}`);
+                this.emit(ManagerEventTypes.Debug, `[MANAGER] Failed on ${platform}: ${err.message}`);
                 continue;
             }
         }
 
-        const prefix = sourcePrefixMap[lowerPlatform] ?? platform;
-        const searchString = /^https?:\/\//.test(_query.query)
-            ? _query.query
-            : `${prefix}:${_query.query}`;
-
-        this.emit(ManagerEventTypes.Debug, `[MANAGER] Trying ${prefix} for: ${_query.query}`);
-
-        try {
-            const res = await node.rest.get(`/v4/loadtracks?identifier=${encodeURIComponent(searchString)}`);
-            if (!res || res.loadType === Utils_1.LoadTypes.Empty || res.loadType === Utils_1.LoadTypes.Error) continue;
-
-            let tracks = [];
-            let playlist = null;
-
-            switch (res.loadType) {
-                case Utils_1.LoadTypes.Search:
-                    tracks = res.data.map((track) => Utils_1.TrackUtils.build(track, requester));
-                    break;
-                case Utils_1.LoadTypes.Track:
-                    tracks = [Utils_1.TrackUtils.build(res.data, requester)];
-                    break;
-                case Utils_1.LoadTypes.Playlist:
-                    const playlistData = res.data;
-                    tracks = playlistData.tracks.map((track) => Utils_1.TrackUtils.build(track, requester));
-                    playlist = {
-                        name: playlistData.info.name,
-                        playlistInfo: playlistData.pluginInfo,
-                        requester: requester,
-                        tracks,
-                        duration: tracks.reduce((acc, cur) => acc + (cur.duration || 0), 0),
-                    };
-                    break;
-            }
-
-            const result = { loadType: res.loadType, tracks, playlist };
-            this.emit(ManagerEventTypes.Debug, `[MANAGER] Success on ${platform}: ${_query.query}`);
-            return result;
-        } catch (err) {
-            this.emit(ManagerEventTypes.Debug, `[MANAGER] Failed on ${platform}: ${err.message}`);
-            continue;
-        }
+        throw new Error(`Not able to resolve ${_query.query}`);
     }
-
-    throw new Error(`Not able to resolve ${_query.query}`);
-}
 
     /**
      * Creates a player or returns one if it already exists.
