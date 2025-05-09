@@ -323,6 +323,7 @@ class AutoPlayUtils {
 
                         // Step 3: Fetch recommendations
                         let json;
+                        console.log("[DEBUG] Using Spotify token:", token.slice(0, 10) + "...");
                         try {
                             const response = await fetch(`https://api.spotify.com/v1/recommendations?limit=10&seed_tracks=${seedTrackId}`, {
                                 headers: {
@@ -330,6 +331,11 @@ class AutoPlayUtils {
                                     "Content-Type": "application/json"
                                 }
                             });
+                            if (!response.ok) {
+    const errText = await response.text();
+    console.error(`[AutoPlay] Spotify recommendations request failed: ${response.status} - ${errText}`);
+    return [];
+}
                             json = await response.json();
                         } catch (err) {
                             console.error("[AutoPlay] Failed to fetch Spotify recommendations:", err);
