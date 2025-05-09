@@ -336,10 +336,11 @@ class AutoPlayUtils {
 
                         // Step 4: Load a recommended track into Lavalink
                         const recommendedTrackId = json.tracks[Math.floor(Math.random() * json.tracks.length)].id;
-                        const res = await this.manager.search({
-                            query: `https://open.spotify.com/track/${recommendedTrackId}`,
-                            source: Manager_1.SearchPlatform.Spotify
-                        }, track.requester);
+                        console.log(recommendedTrackId)
+                        const res = await this.manager.search(
+                            `https://open.spotify.com/track/${recommendedTrackId}`,
+                            track.requester
+                        );
 
                         if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) return [];
                         if (res.loadType === LoadTypes.Playlist) res.tracks = res.playlist.tracks;
