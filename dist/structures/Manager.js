@@ -153,6 +153,7 @@ class Manager extends events_1.EventEmitter {
             soundcloud: "scsearch",
             deezer: "dzsearch",
             spotify: "spsearch",
+            jiosaavn: "jssearch",
             applemusic: "amsearch",
             qobuz: "qbsearch",
             tidal: "tdsearch",
