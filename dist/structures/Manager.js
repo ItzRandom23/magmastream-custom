@@ -10,6 +10,7 @@ const managerCheck_1 = tslib_1.__importDefault(require("../utils/managerCheck"))
 const blockedWords_1 = require("../config/blockedWords");
 const promises_1 = tslib_1.__importDefault(require("fs/promises"));
 const path_1 = tslib_1.__importDefault(require("path"));
+const { fetch } = require("undici");
 /**
  * The main hub for interacting with Lavalink and using Magmastream,
  */
