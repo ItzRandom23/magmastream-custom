@@ -5,7 +5,7 @@ const tslib_1 = require("tslib");
 const Manager_1 = require("./Manager");
 const axios_1 = tslib_1.__importDefault(require("axios"));
 const jsdom_1 = require("jsdom");
-const { fetch } = require("undici");  
+const { fetch } = require("undici");
 
 /** @hidden */
 const SIZES = ["0", "1", "2", "3", "default", "mqdefault", "hqdefault", "maxresdefault"];
@@ -262,50 +262,64 @@ class AutoPlayUtils {
      */
     static async getRecommendedTracksFromSource(track, platform) {
         switch (platform) {
-          case "jiosaavn":
+            case "jiosaavn":
                 {
-                    if (!track.uri.includes("jiosaavn")) {
-                        const res = await this.manager.search({ query: `${track.title} ${track.author}`, source: Manager_1.SearchPlatform.Jiosaavn }, track.requester);
-                        if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) {
-                            return [];
-                        }
-                        if (res.loadType === LoadTypes.Playlist) {
-                            res.tracks = res.playlist.tracks;
-                        }
-                        if (!res.tracks.length) {
-                            return [];
-                        }
-                        track = res.tracks[0];
-                    }
-                    const identifier = `jsrec:${track.identifier}`;
-                    const recommendedResult = (await this.manager.useableNode.rest.get(`/v4/loadtracks?identifier=${encodeURIComponent(identifier)}`));
-                    if (!recommendedResult) {
+                    // Fetch data from the JioSaavn API
+                    const query = `${track.title} ${track.author}`;
+                    const res = await fetch(`https://jiosaavn-flame.vercel.app/api/search?q=${encodeURIComponent(query)}`);
+                    const data = await res.json();
+
+                    if (!data.results || data.results.length === 0) {
                         return [];
                     }
+
+                    // Pick the first result
+                    track = {
+                        title: data.results[0].title,
+                        identifier: data.results[0].identifier,
+                        uri: data.results[0].uri,
+                        artworkUrl: data.results[0].artworkUrl,
+                        author: data.results[0].author,
+                        encryptedMediaUrl: data.results[0].encryptedMediaUrl,
+                        albumUrl: data.results[0].albumUrl,
+                        artistUrl: data.results[0].artistUrl,
+                        albumName: data.results[0].albumName,
+                        artistArtworkUrl: data.results[0].artistArtworkUrl,
+                        requester: track.requester // maintain original requester
+                    };
+
+                    const identifier = track.identifier;
+                    const recommendedResult = await fetch(`/api/recommendations?id=${encodeURIComponent(identifier)}&limit=2`);
+                    const recommendations = await recommendedResult.json();
+
+                    if (!recommendations || recommendations.tracks.length === 0) {
+                        return [];
+                    }
+
                     let tracks = [];
                     let playlist = null;
-                    const requester = track.requester;
-                    switch (recommendedResult.loadType) {
+                    switch (recommendations.loadType) {
                         case LoadTypes.Search:
-                            tracks = recommendedResult.data.map((track) => TrackUtils.build(track, requester));
+                            tracks = recommendations.tracks.map((track) => TrackUtils.build(track, track.requester));
                             break;
                         case LoadTypes.Track:
-                            tracks = [TrackUtils.build(recommendedResult.data, requester)];
+                            tracks = [TrackUtils.build(recommendations.tracks, track.requester)];
                             break;
                         case LoadTypes.Playlist: {
-                            const playlistData = recommendedResult.data;
-                            tracks = playlistData.tracks.map((track) => TrackUtils.build(track, requester));
+                            const playlistData = recommendations.tracks;
+                            tracks = playlistData.map((track) => TrackUtils.build(track, track.requester));
                             playlist = {
                                 name: playlistData.info.name,
                                 playlistInfo: playlistData.pluginInfo,
-                                requester: requester,
+                                requester: track.requester,
                                 tracks,
                                 duration: tracks.reduce((acc, cur) => acc + (cur.duration || 0), 0),
                             };
                             break;
                         }
                     }
-                    const result = { loadType: recommendedResult.loadType, tracks, playlist };
+
+                    const result = { loadType: recommendations.loadType, tracks, playlist };
                     if (result.loadType === LoadTypes.Empty || result.loadType === LoadTypes.Error) {
                         return [];
                     }
@@ -315,9 +329,11 @@ class AutoPlayUtils {
                     if (!result.tracks.length) {
                         return [];
                     }
+
                     return result.tracks;
                 }
                 break;
+
             case "deezer":
                 {
                     if (!track.uri.includes("deezer")) {
