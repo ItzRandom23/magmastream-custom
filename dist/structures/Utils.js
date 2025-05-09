@@ -264,6 +264,8 @@ class AutoPlayUtils {
         switch (platform) {
             case "spotify":
                 {
+                    console.log("[DEBUG] AutoPlay source: spotify");
+
                     try {
                         const { Id, Secret } = this.manager.options.spotify || {};
                         if (!Id || !Secret) {
@@ -297,6 +299,8 @@ class AutoPlayUtils {
                             seedTrackId = track.identifier;
                         } else {
                             try {
+                                console.log(`[DEBUG] Searching Spotify API: ${track.title} - ${track.author}`);
+
                                 const query = encodeURIComponent(`${track.title} ${track.author}`);
                                 const searchRes = await fetch(`https://api.spotify.com/v1/search?q=${query}&type=track&limit=1`, {
                                     headers: {
@@ -336,7 +340,8 @@ class AutoPlayUtils {
 
                         // Step 4: Load a recommended track into Lavalink
                         const recommendedTrackId = json.tracks[Math.floor(Math.random() * json.tracks.length)].id;
-                        console.log(recommendedTrackId)
+                        console.log(`[DEBUG] Recommended Spotify track ID: ${recommendedTrackId}`);
+
                         const res = await this.manager.search(
                             `https://open.spotify.com/track/${recommendedTrackId}`,
                             track.requester
