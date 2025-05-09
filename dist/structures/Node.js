@@ -600,41 +600,7 @@ class Node {
      * @returns {Promise<boolean>} A promise that resolves to a boolean indicating if autoplay was successful.
      * @private
      */
-    async handleAutoplay(player, attempt = 0) {
-        console.log(`[DEBUG] Running handleAutoplay, attempt: ${attempt}`);
-
-        if (!player.isAutoplay) {
-            console.log("[DEBUG] Autoplay is disabled");
-            return false;
-        }
-
-        if (attempt > player.autoplayTries) {
-            console.log("[DEBUG] Attempt limit reached");
-            return false;
-        }
-
-        if (!player.queue.previous.length) {
-            console.log("[DEBUG] No previous tracks");
-            return false;
-        }
-
-        const lastTrack = player.queue.previous[player.queue.previous.length - 1];
-        lastTrack.requester = player.get("Internal_BotUser");
-
-        const tracks = await Utils_1.AutoPlayUtils.getRecommendedTracks(lastTrack);
-        console.log(`[DEBUG] Recommended tracks received: ${tracks.length}`);
-
-        if (tracks.length) {
-            player.queue.add(tracks[0]);
-            await player.play();
-            return true;
-        } else {
-            console.log("[DEBUG] No tracks returned by AutoPlayUtils");
-            return false;
-        }
-    }
-
-    /* async handleAutoplay(player, attempt = 0) {
+     async handleAutoplay(player, attempt = 0) {
          // If autoplay is not enabled or all attempts have failed, early exit
          if (!player.isAutoplay || attempt > player.autoplayTries || !player.queue.previous.length)
              return false;
@@ -651,7 +617,7 @@ class Node {
          else {
              return false;
          }
-     }*/
+     }
     /**
      * Handles the scenario when a track fails to play or load.
      * Shifts the queue to the next track and emits a track end event.

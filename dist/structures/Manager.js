@@ -58,13 +58,9 @@ class Manager extends events_1.EventEmitter {
                 },
             ],
             playNextOnEnd: true,
-            spotify: {
-                Id: "fa7e3599e8ab4134a1313af2c1a6c401",
-                Secret: "4a6e012beb0a4ff79a366c94c075594f",
-            },
             enablePriorityMode: false,
             clientName: "Magmastream",
-            defaultSearchPlatform: SearchPlatform.YouTube,
+            defaultSearchPlatform: SearchPlatform.Deezer,
             useNode: UseNodeOptions.LeastPlayers,
             maxPreviousTracks: options.maxPreviousTracks ?? 20,
             ...options,
@@ -943,6 +939,7 @@ var AutoPlayPlatform;
 (function (AutoPlayPlatform) {
     AutoPlayPlatform["Spotify"] = "spotify";
     AutoPlayPlatform["Deezer"] = "deezer";
+    AutoPlayPlatform["Jiosaavn"] = "jiosaavn";
     AutoPlayPlatform["SoundCloud"] = "soundcloud";
     AutoPlayPlatform["Tidal"] = "tidal";
     AutoPlayPlatform["VKMusic"] = "vkmusic";

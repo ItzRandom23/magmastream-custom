@@ -262,110 +262,62 @@ class AutoPlayUtils {
      */
     static async getRecommendedTracksFromSource(track, platform) {
         switch (platform) {
-            case "spotify":
+          case "jiosaavn":
                 {
-                    console.log("[DEBUG] AutoPlay source: spotify");
-
-                    try {
-                        const { Id, Secret } = this.manager.options.spotify || {};
-                        if (!Id || !Secret) {
-                            console.warn("[AutoPlay] Spotify Id/Secret not configured in Manager options.");
+                    if (!track.uri.includes("jiosaavn")) {
+                        const res = await this.manager.search({ query: `${track.title} ${track.author}`, source: Manager_1.SearchPlatform.Jiosaavn }, track.requester);
+                        if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) {
                             return [];
                         }
-
-                        // Step 1: Get Access Token
-                        let token;
-                        try {
-                            const authRes = await fetch("https://accounts.spotify.com/api/token", {
-                                method: "POST",
-                                headers: {
-                                    Authorization: `Basic ${Buffer.from(`${Id}:${Secret}`).toString("base64")}`,
-                                    "Content-Type": "application/x-www-form-urlencoded"
-                                },
-                                body: "grant_type=client_credentials"
-                            });
-
-                            const data = await authRes.json();
-                            token = data.access_token;
-                            if (!token) throw new Error("No access token returned");
-                        } catch (err) {
-                            console.error("[AutoPlay] Failed to get Spotify access token:", err);
+                        if (res.loadType === LoadTypes.Playlist) {
+                            res.tracks = res.playlist.tracks;
+                        }
+                        if (!res.tracks.length) {
                             return [];
                         }
-
-                        // Step 2: Determine if it's already a Spotify track or needs search
-                        let seedTrackId;
-                        if (track.uri.includes("spotify") && track.identifier) {
-                            seedTrackId = track.identifier;
-                        } else {
-                            try {
-                                console.log(`[DEBUG] Searching Spotify API: ${track.title} - ${track.author}`);
-
-                                const query = encodeURIComponent(`${track.title} ${track.author}`);
-                                const searchRes = await fetch(`https://api.spotify.com/v1/search?q=${query}&type=track&limit=1`, {
-                                    headers: {
-                                        Authorization: `Bearer ${token}`,
-                                        "Content-Type": "application/json"
-                                    }
-                                });
-
-                                const searchJson = await searchRes.json();
-                                seedTrackId = searchJson?.tracks?.items?.[0]?.id;
-                                if (!seedTrackId) {
-                                    console.warn("[AutoPlay] No Spotify track ID found via search.");
-                                    return [];
-                                }
-                                console.log("[DEBUG] Using seedTrackId:", seedTrackId);
-                            } catch (err) {
-                                console.error("[AutoPlay] Spotify search failed:", err);
-                                return [];
-                            }
-                        }
-
-                        // Step 3: Fetch recommendations
-                        let json;
-                        console.log("[DEBUG] Using Spotify token:", token.slice(0, 10) + "...");
-                        try {
-                            const response = await fetch(`https://api.spotify.com/v1/recommendations?limit=10&seed_tracks=${seedTrackId}`, {
-                                headers: {
-                                    Authorization: `Bearer ${token}`,
-                                    "Content-Type": "application/json"
-                                }
-                            });
-                            if (!response.ok) {
-    const errText = await response.text();
-    console.error(`[AutoPlay] Spotify recommendations request failed: ${response.status} - ${errText}`);
-    return [];
-}
-                            json = await response.json();
-                        } catch (err) {
-                            console.error("[AutoPlay] Failed to fetch Spotify recommendations:", err);
-                            return [];
-                        }
-
-                        if (!json.tracks || !json.tracks.length) return [];
-
-                        // Step 4: Load a recommended track into Lavalink
-                        const recommendedTrackId = json.tracks[Math.floor(Math.random() * json.tracks.length)].id;
-                        console.log(`[DEBUG] Recommended Spotify track ID: ${recommendedTrackId}`);
-
-                        const res = await this.manager.search(
-                            `https://open.spotify.com/track/${recommendedTrackId}`,
-                            track.requester
-                        );
-
-                        if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) return [];
-                        if (res.loadType === LoadTypes.Playlist) res.tracks = res.playlist.tracks;
-                        if (!res.tracks.length) return [];
-
-                        return res.tracks;
-                    } catch (error) {
-                        console.error("[AutoPlay] Unexpected Spotify error:", error.message || error);
+                        track = res.tracks[0];
+                    }
+                    const identifier = `jsrec:${track.identifier}`;
+                    const recommendedResult = (await this.manager.useableNode.rest.get(`/v4/loadtracks?identifier=${encodeURIComponent(identifier)}`));
+                    if (!recommendedResult) {
                         return [];
                     }
+                    let tracks = [];
+                    let playlist = null;
+                    const requester = track.requester;
+                    switch (recommendedResult.loadType) {
+                        case LoadTypes.Search:
+                            tracks = recommendedResult.data.map((track) => TrackUtils.build(track, requester));
+                            break;
+                        case LoadTypes.Track:
+                            tracks = [TrackUtils.build(recommendedResult.data, requester)];
+                            break;
+                        case LoadTypes.Playlist: {
+                            const playlistData = recommendedResult.data;
+                            tracks = playlistData.tracks.map((track) => TrackUtils.build(track, requester));
+                            playlist = {
+                                name: playlistData.info.name,
+                                playlistInfo: playlistData.pluginInfo,
+                                requester: requester,
+                                tracks,
+                                duration: tracks.reduce((acc, cur) => acc + (cur.duration || 0), 0),
+                            };
+                            break;
+                        }
+                    }
+                    const result = { loadType: recommendedResult.loadType, tracks, playlist };
+                    if (result.loadType === LoadTypes.Empty || result.loadType === LoadTypes.Error) {
+                        return [];
+                    }
+                    if (result.loadType === LoadTypes.Playlist) {
+                        result.tracks = result.playlist.tracks;
+                    }
+                    if (!result.tracks.length) {
+                        return [];
+                    }
+                    return result.tracks;
                 }
                 break;
-
             case "deezer":
                 {
                     if (!track.uri.includes("deezer")) {
