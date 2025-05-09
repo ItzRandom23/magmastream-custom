@@ -5,8 +5,8 @@ const tslib_1 = require("tslib");
 const Manager_1 = require("./Manager");
 const axios_1 = tslib_1.__importDefault(require("axios"));
 const jsdom_1 = require("jsdom");
-const crypto_1 = tslib_1.__importDefault(require("crypto"));
-const fetch = require("node-fetch");
+const { fetch } = require("undici");  
+
 /** @hidden */
 const SIZES = ["0", "1", "2", "3", "default", "mqdefault", "hqdefault", "maxresdefault"];
 class TrackUtils {
