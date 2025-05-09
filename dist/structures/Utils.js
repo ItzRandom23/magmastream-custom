@@ -265,21 +265,13 @@ class AutoPlayUtils {
             case "spotify":
                 {
                     try {
-                        /*  if (!track.uri.includes("spotify")) {
-                              const res = await this.manager.search({ query: `${track.author} - ${track.title}`, source: Manager_1.SearchPlatform.Spotify }, track.requester);
-                              if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) return [];
-                              if (res.loadType === LoadTypes.Playlist) res.tracks = res.playlist.tracks;
-                              if (!res.tracks.length) return [];
-                              track = res.tracks[0];
-                          }*/
-
                         const { Id, Secret } = this.manager.options.spotify || {};
                         if (!Id || !Secret) {
                             console.warn("[AutoPlay] Spotify Id/Secret not configured in Manager options.");
                             return [];
                         }
 
-                        // Get access token via client credentials
+                        // Step 1: Get Access Token
                         let token;
                         try {
                             const authRes = await fetch("https://accounts.spotify.com/api/token", {
@@ -299,10 +291,36 @@ class AutoPlayUtils {
                             return [];
                         }
 
-                        // Get recommendations using the seed track
+                        // Step 2: Determine if it's already a Spotify track or needs search
+                        let seedTrackId;
+                        if (track.uri.includes("spotify") && track.identifier) {
+                            seedTrackId = track.identifier;
+                        } else {
+                            try {
+                                const query = encodeURIComponent(`${track.title} ${track.author}`);
+                                const searchRes = await fetch(`https://api.spotify.com/v1/search?q=${query}&type=track&limit=1`, {
+                                    headers: {
+                                        Authorization: `Bearer ${token}`,
+                                        "Content-Type": "application/json"
+                                    }
+                                });
+
+                                const searchJson = await searchRes.json();
+                                seedTrackId = searchJson?.tracks?.items?.[0]?.id;
+                                if (!seedTrackId) {
+                                    console.warn("[AutoPlay] No Spotify track ID found via search.");
+                                    return [];
+                                }
+                            } catch (err) {
+                                console.error("[AutoPlay] Spotify search failed:", err);
+                                return [];
+                            }
+                        }
+
+                        // Step 3: Fetch recommendations
                         let json;
                         try {
-                            const response = await fetch(`https://api.spotify.com/v1/recommendations?limit=10&seed_tracks=${track.identifier}`, {
+                            const response = await fetch(`https://api.spotify.com/v1/recommendations?limit=10&seed_tracks=${seedTrackId}`, {
                                 headers: {
                                     Authorization: `Bearer ${token}`,
                                     "Content-Type": "application/json"
@@ -316,6 +334,7 @@ class AutoPlayUtils {
 
                         if (!json.tracks || !json.tracks.length) return [];
 
+                        // Step 4: Load a recommended track into Lavalink
                         const recommendedTrackId = json.tracks[Math.floor(Math.random() * json.tracks.length)].id;
                         const res = await this.manager.search({
                             query: `https://open.spotify.com/track/${recommendedTrackId}`,
@@ -334,11 +353,10 @@ class AutoPlayUtils {
                 }
                 break;
 
-
             case "deezer":
                 {
                     if (!track.uri.includes("deezer")) {
-                        const res = await this.manager.search({ query: `${track.author} - ${track.title}`, source: Manager_1.SearchPlatform.Deezer }, track.requester);
+                        const res = await this.manager.search({ query: `${track.title} ${track.author}`, source: Manager_1.SearchPlatform.Deezer }, track.requester);
                         if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) {
                             return [];
                         }
@@ -394,7 +412,7 @@ class AutoPlayUtils {
             case "soundcloud":
                 {
                     if (!track.uri.includes("soundcloud")) {
-                        const res = await this.manager.search({ query: `${track.author} - ${track.title}`, source: Manager_1.SearchPlatform.SoundCloud }, track.requester);
+                        const res = await this.manager.search({ query: `${track.title} ${track.author}`, source: Manager_1.SearchPlatform.SoundCloud }, track.requester);
                         if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) {
                             return [];
                         }
