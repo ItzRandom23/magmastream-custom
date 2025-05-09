@@ -315,6 +315,7 @@ class AutoPlayUtils {
                                     console.warn("[AutoPlay] No Spotify track ID found via search.");
                                     return [];
                                 }
+                                console.log("[DEBUG] Using seedTrackId:", seedTrackId);
                             } catch (err) {
                                 console.error("[AutoPlay] Spotify search failed:", err);
                                 return [];
