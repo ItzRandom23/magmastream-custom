@@ -311,6 +311,62 @@ class AutoPlayUtils {
                 }
                 break;
 
+            case "spotify":
+                {
+                    if (!track.uri.includes("spotify")) {
+                        const res = await this.manager.search({ query: `${track.title} ${track.author}`, source: Manager_1.SearchPlatform.Spotify }, track.requester);
+                        if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) {
+                            return [];
+                        }
+                        if (res.loadType === LoadTypes.Playlist) {
+                            res.tracks = res.playlist.tracks;
+                        }
+                        if (!res.tracks.length) {
+                            return [];
+                        }
+                        track = res.tracks[0];
+                    }
+                    const identifier = `sprec:${track.identifier}`;
+                    const recommendedResult = (await this.manager.useableNode.rest.get(`/v4/loadtracks?identifier=${encodeURIComponent(identifier)}`));
+                    if (!recommendedResult) {
+                        return [];
+                    }
+                    let tracks = [];
+                    let playlist = null;
+                    const requester = track.requester;
+                    switch (recommendedResult.loadType) {
+                        case LoadTypes.Search:
+                            tracks = recommendedResult.data.map((track) => TrackUtils.build(track, requester));
+                            break;
+                        case LoadTypes.Track:
+                            tracks = [TrackUtils.build(recommendedResult.data, requester)];
+                            break;
+                        case LoadTypes.Playlist: {
+                            const playlistData = recommendedResult.data;
+                            tracks = playlistData.tracks.map((track) => TrackUtils.build(track, requester));
+                            playlist = {
+                                name: playlistData.info.name,
+                                playlistInfo: playlistData.pluginInfo,
+                                requester: requester,
+                                tracks,
+                                duration: tracks.reduce((acc, cur) => acc + (cur.duration || 0), 0),
+                            };
+                            break;
+                        }
+                    }
+                    const result = { loadType: recommendedResult.loadType, tracks, playlist };
+                    if (result.loadType === LoadTypes.Empty || result.loadType === LoadTypes.Error) {
+                        return [];
+                    }
+                    if (result.loadType === LoadTypes.Playlist) {
+                        result.tracks = result.playlist.tracks;
+                    }
+                    if (!result.tracks.length) {
+                        return [];
+                    }
+                    return result.tracks;
+                }
+                break;
             case "deezer":
                 {
                     if (!track.uri.includes("deezer")) {
