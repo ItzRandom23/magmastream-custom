@@ -168,7 +168,7 @@ class Manager extends events_1.EventEmitter {
             const prefix = sourcePrefixMap[platform.toLowerCase()] ?? platform;
 
             if (platform === "jiosaavn") {
-            
+
                 if (/^https?:\/\//.test(_query.query)) {
                     this.emit(ManagerEventTypes.Debug, `[MANAGER] Skipping JioSaavn because query is a URL: ${_query.query}`);
                     continue;
@@ -259,7 +259,12 @@ class Manager extends events_1.EventEmitter {
             }
         }
 
-        throw new Error(`Not able to resolve ${_query.query}`);
+        return {
+            loadType: Utils_1.LoadTypes.Empty,
+            tracks: [],
+            playlist: null
+        };
+
     }
 
 
