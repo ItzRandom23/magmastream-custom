@@ -14,6 +14,49 @@ const { fetch } = require("undici");
 /**
  * The main hub for interacting with Lavalink and using Magmastream,
  */
+function normalize(text) {
+    return text
+        .toLowerCase()
+        .replace(/[^\w\s]|_/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function similarity(a, b) {
+    if (!a || !b) return 0;
+    const longer = a.length > b.length ? a : b;
+    const shorter = a.length > b.length ? b : a;
+    const longerLength = longer.length;
+    if (longerLength === 0) return 1.0;
+    return (longerLength - editDistance(longer, shorter)) / longerLength;
+}
+
+function editDistance(a, b) {
+    const matrix = [];
+    const aLen = a.length;
+    const bLen = b.length;
+
+    for (let i = 0; i <= bLen; i++) matrix[i] = [i];
+    for (let j = 0; j <= aLen; j++) matrix[0][j] = j;
+
+    for (let i = 1; i <= bLen; i++) {
+        for (let j = 1; j <= aLen; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1,
+                    matrix[i][j - 1] + 1,
+                    matrix[i - 1][j] + 1
+                );
+            }
+        }
+    }
+
+    return matrix[bLen][aLen];
+}
+
+
 class Manager extends events_1.EventEmitter {
     /** The map of players. */
     players = new collection_1.Collection();
@@ -143,31 +186,31 @@ class Manager extends events_1.EventEmitter {
      * @returns The search result.
      */
     async search(query, requester, sourcePlatforms) {
-        const node = this.useableNode;
-        if (!node) throw new Error("No available nodes.");
+    const node = this.useableNode;
+    if (!node) throw new Error("No available nodes.");
 
-        const _query = typeof query === "string" ? { query } : query;
+    const _query = typeof query === "string" ? { query } : query;
 
-        const sourcePrefixMap = {
-            youtube: "ytsearch",
-            ytmusic: "ytmsearch",
-            soundcloud: "scsearch",
-            deezer: "dzsearch",
-            spotify: "spsearch",
-            jiosaavn: "jssearch",
-            applemusic: "amsearch",
-            qobuz: "qbsearch",
-            tidal: "tdsearch",
-        };
+    const sourcePrefixMap = {
+        youtube: "ytsearch",
+        ytmusic: "ytmsearch",
+        soundcloud: "scsearch",
+        deezer: "dzsearch",
+        spotify: "spsearch",
+        jiosaavn: "jssearch",
+        applemusic: "amsearch",
+        qobuz: "qbsearch",
+        tidal: "tdsearch",
+    };
 
-        const platforms = Array.isArray(sourcePlatforms)
-            ? sourcePlatforms
-            : [sourcePlatforms ?? _query.source ?? this.options.defaultSearchPlatform];
+    const platforms = Array.isArray(sourcePlatforms)
+        ? sourcePlatforms
+        : [sourcePlatforms ?? _query.source ?? this.options.defaultSearchPlatform];
 
-        for (const platform of platforms) {
-            const prefix = sourcePrefixMap[platform.toLowerCase()] ?? platform;
+    for (const platform of platforms) {
+        const prefix = sourcePrefixMap[platform.toLowerCase()] ?? platform;
 
-            if (platform === "jiosaavn") {
+         if (platform === "jiosaavn") {
 
                 if (/^https?:\/\//.test(_query.query)) {
                     this.emit(ManagerEventTypes.Debug, `[MANAGER] Skipping JioSaavn because query is a URL: ${_query.query}`);
@@ -217,55 +260,71 @@ class Manager extends events_1.EventEmitter {
                 }
             }
 
-            const searchString = /^https?:\/\//.test(_query.query)
-                ? _query.query
-                : `${prefix}:${_query.query}`;
+        const searchString = /^https?:\/\//.test(_query.query)
+            ? _query.query
+            : `${prefix}:${_query.query}`;
 
-            this.emit(ManagerEventTypes.Debug, `[MANAGER] Trying ${prefix} for: ${_query.query}`);
+        this.emit(ManagerEventTypes.Debug, `[MANAGER] Trying ${prefix} for: ${_query.query}`);
 
-            try {
-                const res = await node.rest.get(`/v4/loadtracks?identifier=${encodeURIComponent(searchString)}`);
-                if (!res || res.loadType === Utils_1.LoadTypes.Empty || res.loadType === Utils_1.LoadTypes.Error) continue;
+        try {
+            const res = await node.rest.get(`/v4/loadtracks?identifier=${encodeURIComponent(searchString)}`);
+            if (!res || res.loadType === Utils_1.LoadTypes.Empty || res.loadType === Utils_1.LoadTypes.Error) continue;
 
-                let tracks = [];
-                let playlist = null;
+            let tracks = [];
+            let playlist = null;
 
-                switch (res.loadType) {
-                    case Utils_1.LoadTypes.Search:
-                        tracks = res.data.map((track) => Utils_1.TrackUtils.build(track, requester));
-                        break;
-                    case Utils_1.LoadTypes.Track:
-                        tracks = [Utils_1.TrackUtils.build(res.data, requester)];
-                        break;
-                    case Utils_1.LoadTypes.Playlist:
-                        const playlistData = res.data;
-                        tracks = playlistData.tracks.map((track) => Utils_1.TrackUtils.build(track, requester));
-                        playlist = {
-                            name: playlistData.info.name,
-                            playlistInfo: playlistData.pluginInfo,
-                            requester: requester,
-                            tracks,
-                            duration: tracks.reduce((acc, cur) => acc + (cur.duration || 0), 0),
-                        };
-                        break;
-                }
+            switch (res.loadType) {
+                case Utils_1.LoadTypes.Search:
+                    const built = res.data.map((track) => Utils_1.TrackUtils.build(track, requester));
+                    const normalizedQuery = normalize(_query.query);
 
-                const result = { loadType: res.loadType, tracks, playlist };
-                this.emit(ManagerEventTypes.Debug, `[MANAGER] Success on ${platform}: ${_query.query}`);
-                return result;
-            } catch (err) {
-                this.emit(ManagerEventTypes.Debug, `[MANAGER] Failed on ${platform}: ${err.message}`);
-                continue;
+                    const best = built
+                        .map(t => ({
+                            track: t,
+                            score: similarity(normalize(`${t.author} - ${t.title}`), normalizedQuery)
+                        }))
+                        .sort((a, b) => b.score - a.score)[0];
+
+                    if (best && best.score > 0.2) {
+                        tracks = [best.track];
+                    } else {
+                        tracks = built;
+                    }
+                    break;
+
+                case Utils_1.LoadTypes.Track:
+                    tracks = [Utils_1.TrackUtils.build(res.data, requester)];
+                    break;
+
+                case Utils_1.LoadTypes.Playlist:
+                    const playlistData = res.data;
+                    tracks = playlistData.tracks.map((track) => Utils_1.TrackUtils.build(track, requester));
+                    playlist = {
+                        name: playlistData.info.name,
+                        playlistInfo: playlistData.pluginInfo,
+                        requester: requester,
+                        tracks,
+                        duration: tracks.reduce((acc, cur) => acc + (cur.duration || 0), 0),
+                    };
+                    break;
             }
+
+            const result = { loadType: res.loadType, tracks, playlist };
+            this.emit(ManagerEventTypes.Debug, `[MANAGER] Success on ${platform}: ${_query.query}`);
+            return result;
+
+        } catch (err) {
+            this.emit(ManagerEventTypes.Debug, `[MANAGER] Failed on ${platform}: ${err.message}`);
+            continue;
         }
-
-        return {
-            loadType: Utils_1.LoadTypes.Empty,
-            tracks: [],
-            playlist: null
-        };
-
     }
+
+    return {
+        loadType: Utils_1.LoadTypes.Empty,
+        tracks: [],
+        playlist: null
+    };
+}
 
 
 
