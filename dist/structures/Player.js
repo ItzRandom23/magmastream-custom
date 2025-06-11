@@ -693,14 +693,14 @@ class Player {
         }
 
         const current = this.queue.current;
-
-        // Move the most recent previous track back to current
         const previousTrack = this.queue.previous.pop();
-        this.queue.unshift(current); // Push current track to the front of the queue
+
         this.queue.current = previousTrack;
+        this.queue.replayNext = current;
 
         await this.play();
     }
+
     /**
      * Seeks to a given position in the currently playing track.
      * @param position - The position in milliseconds to seek to.
