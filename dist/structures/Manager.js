@@ -142,6 +142,7 @@ class Manager extends events_1.EventEmitter {
      * @param sourcePlatforms
      * @returns The search result.
      */
+   
     async search(query, requester, sourcePlatforms) {
         const node = this.useableNode;
         if (!node) throw new Error("No available nodes.");
@@ -231,59 +232,9 @@ class Manager extends events_1.EventEmitter {
                 let playlist = null;
 
                 switch (res.loadType) {
-                    case Utils_1.LoadTypes.Search: {
-                        const rawTracks = res.data.map((track) =>
-                            Utils_1.TrackUtils.build(track, requester)
-                        );
-
-                        const query = originalQuery.toLowerCase().trim();
-                        const cleanedQuery = query.replace(/[^a-z0-9 ]/g, "");
-
-                        const avoidKeywords = [
-                            "slowed", "nightcore", "reverb", "8d",
-                            "bass boosted", "sped up", "remix", "chipmunk", "pitched"
-                        ];
-
-                        const userWantsAltVersion = avoidKeywords.some(word => query.includes(word));
-
-                        let bestTrack = rawTracks[0];
-                        let bestScore = -Infinity;
-
-                        for (const track of rawTracks) {
-                            const title = track.title?.toLowerCase().trim() || "";
-                            const author = track.author?.toLowerCase().trim() || "";
-                            const combined = `${title} ${author}`;
-                            const cleanedTitle = title.replace(/[^a-z0-9 ]/g, "");
-
-                            let score = 0;
-
-                            // High bonus if exact match
-                            if (cleanedTitle === cleanedQuery) score += 20;
-
-                            // Partial match
-                            if (cleanedTitle.includes(cleanedQuery)) score += 10;
-
-                            // Mild author match
-                            if (query.includes(author)) score += 3;
-
-                            // Penalize altered versions if not asked for
-                            if (!userWantsAltVersion) {
-                                for (const word of avoidKeywords) {
-                                    if (cleanedTitle.includes(word)) score -= 15;
-                                }
-                            }
-
-                            if (score > bestScore) {
-                                bestScore = score;
-                                bestTrack = track;
-                            }
-                        }
-
-                        tracks = [bestTrack];
+                    case Utils_1.LoadTypes.Search:
+                        tracks = res.data.map((track) => Utils_1.TrackUtils.build(track, requester));
                         break;
-                    }
-
-
                     case Utils_1.LoadTypes.Track:
                         tracks = [Utils_1.TrackUtils.build(res.data, requester)];
                         break;
@@ -316,8 +267,6 @@ class Manager extends events_1.EventEmitter {
         };
 
     }
-
-
 
     /**
      * Creates a player or returns one if it already exists.
