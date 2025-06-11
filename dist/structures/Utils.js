@@ -94,6 +94,7 @@ class TrackUtils {
                 tidal: "Tidal",
                 youtube: "YouTube",
                 vkmusic: "VKMusic",
+                qobuz: "Qobuz"
             };
             const track = {
                 track: data.encoded,
