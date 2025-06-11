@@ -695,14 +695,19 @@ class Player {
         const current = this.queue.current;
         const previousTrack = this.queue.previous.pop();
 
-        if (current) {
-            this.queue.unshift(current); // 🔁 Add current back to the front of the queue
+        // ✅ Only push current to queue if it's NOT the same as the previous one already there
+        if (
+            current &&
+            (!this.queue[0] || this.queue[0].identifier !== current.identifier)
+        ) {
+            this.queue.unshift(current);
         }
 
         this.queue.current = previousTrack;
 
         await this.play();
     }
+
 
 
     /**
