@@ -232,65 +232,57 @@ class Manager extends events_1.EventEmitter {
 
                 switch (res.loadType) {
                     case Utils_1.LoadTypes.Search: {
-                            const rawTracks = res.data.map((track) =>
-                                Utils_1.TrackUtils.build(track, requester)
-                            );
+                        const rawTracks = res.data.map((track) =>
+                            Utils_1.TrackUtils.build(track, requester)
+                        );
 
-                            const query = originalQuery.toLowerCase();
-                            const cleanedQuery = query.replace(/[^a-z0-9]/gi, " ").trim();
+                        const query = originalQuery.toLowerCase().trim();
+                        const cleanedQuery = query.replace(/[^a-z0-9 ]/g, "");
 
-                            let bestTrack = rawTracks[0];
-                            let bestScore = -Infinity;
+                        const avoidKeywords = [
+                            "slowed", "nightcore", "reverb", "8d",
+                            "bass boosted", "sped up", "remix", "chipmunk", "pitched"
+                        ];
 
-                            for (const t of rawTracks) {
-                                const normTitle = t.title?.toLowerCase().replace(/[^a-z0-9]/g, " ").trim() || "";
-                                const normAuthor = t.author?.toLowerCase().replace(/[^a-z0-9]/g, " ").trim() || "";
-                                const fullCombo = `${normTitle} ${normAuthor}`;
+                        const userWantsAltVersion = avoidKeywords.some(word => query.includes(word));
 
-                                let score = 0;
+                        let bestTrack = rawTracks[0];
+                        let bestScore = -Infinity;
 
-                                // Strong bonus for exact match on title or full combo
-                                if (normTitle === cleanedQuery) score += 15;
-                                if (fullCombo === cleanedQuery) score += 20;
+                        for (const track of rawTracks) {
+                            const title = track.title?.toLowerCase().trim() || "";
+                            const author = track.author?.toLowerCase().trim() || "";
+                            const combined = `${title} ${author}`;
+                            const cleanedTitle = title.replace(/[^a-z0-9 ]/g, "");
 
-                                // Good bonus if query includes title/author
-                                if (cleanedQuery.includes(normTitle)) score += 5;
-                                if (cleanedQuery.includes(normAuthor)) score += 3;
+                            let score = 0;
 
-                                // Keyword-based penalties for altered versions
-                                const avoidKeywords = [
-                                    "slowed", "nightcore", "reverb", "8d",
-                                    "bass boosted", "sped up", "remix", "pitch", "chipmunk"
-                                ];
-                                const requestedKeywords = avoidKeywords.filter(word => query.includes(word));
+                            // High bonus if exact match
+                            if (cleanedTitle === cleanedQuery) score += 20;
 
+                            // Partial match
+                            if (cleanedTitle.includes(cleanedQuery)) score += 10;
+
+                            // Mild author match
+                            if (query.includes(author)) score += 3;
+
+                            // Penalize altered versions if not asked for
+                            if (!userWantsAltVersion) {
                                 for (const word of avoidKeywords) {
-                                    if (normTitle.includes(word) && !requestedKeywords.includes(word)) {
-                                        score -= 10; // harder penalty
-                                    }
-                                }
-
-                                // Mild bonus if artist name in query
-                                if (query.includes(normAuthor)) score += 2;
-
-                                // Fallback: longer titles that match more keywords from query
-                                const matchCount = cleanedQuery
-                                    .split(" ")
-                                    .filter((q) => normTitle.includes(q)).length;
-
-                                score += matchCount;
-
-                                if (score > bestScore) {
-                                    bestScore = score;
-                                    bestTrack = t;
+                                    if (cleanedTitle.includes(word)) score -= 15;
                                 }
                             }
 
-                            tracks = [bestTrack];
-                            console.log(`[SEARCH] Selected track: ${bestTrack.title} by ${bestTrack.author}`);
-
-                            break;
+                            if (score > bestScore) {
+                                bestScore = score;
+                                bestTrack = track;
+                            }
                         }
+
+                        tracks = [bestTrack];
+                        break;
+                    }
+
 
                     case Utils_1.LoadTypes.Track:
                         tracks = [Utils_1.TrackUtils.build(res.data, requester)];
