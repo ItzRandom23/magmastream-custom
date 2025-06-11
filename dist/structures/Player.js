@@ -695,11 +695,15 @@ class Player {
         const current = this.queue.current;
         const previousTrack = this.queue.previous.pop();
 
+        if (current) {
+            this.queue.unshift(current); // 🔁 Add current back to the front of the queue
+        }
+
         this.queue.current = previousTrack;
-        this.queue.replayNext = current;
 
         await this.play();
     }
+
 
     /**
      * Seeks to a given position in the currently playing track.
