@@ -600,24 +600,35 @@ class Node {
      * @returns {Promise<boolean>} A promise that resolves to a boolean indicating if autoplay was successful.
      * @private
      */
-     async handleAutoplay(player, attempt = 0) {
-         // If autoplay is not enabled or all attempts have failed, early exit
-         if (!player.isAutoplay || attempt > player.autoplayTries || !player.queue.previous.length)
-             return false;
-         const lastTrack = player.queue.previous[player.queue.previous.length - 1];
-         lastTrack.requester = player.get("Internal_BotUser");
-         if (!lastTrack)
-             return false;
-         const tracks = await Utils_1.AutoPlayUtils.getRecommendedTracks(lastTrack);
-         if (tracks.length) {
-             player.queue.add(tracks[0]);
-             await player.play();
-             return true;
-         }
-         else {
-             return false;
-         }
-     }
+    async handleAutoplay(player, attempt = 0) {
+        // If autoplay is not enabled or all attempts have failed, early exit
+        if (!player.isAutoplay || attempt > player.autoplayTries || !player.queue.previous.length)
+            return false;
+        const lastTrack = player.queue.previous[player.queue.previous.length - 1];
+        if (!lastTrack || typeof lastTrack !== "object") {
+            console.warn("Autoplay error: lastTrack is null or invalid.");
+            return false; 
+        }
+
+        const botUser = player.get("Internal_BotUser");
+
+        if (!botUser) {
+            console.warn("Autoplay error: Internal_BotUser not found on player."); 
+            return false; 
+        }
+        lastTrack.requester = player.get("Internal_BotUser");
+        if (!lastTrack)
+            return false;
+        const tracks = await Utils_1.AutoPlayUtils.getRecommendedTracks(lastTrack);
+        if (tracks.length) {
+            player.queue.add(tracks[0]);
+            await player.play();
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
     /**
      * Handles the scenario when a track fails to play or load.
      * Shifts the queue to the next track and emits a track end event.
