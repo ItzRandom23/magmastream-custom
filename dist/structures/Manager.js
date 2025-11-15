@@ -168,6 +168,56 @@ class Manager extends events_1.EventEmitter {
         for (const platform of platforms) {
             const prefix = sourcePrefixMap[platform.toLowerCase()] ?? platform;
 
+            if (platform === "jiosaavn") {
+
+                if (/^https?:\/\//.test(_query.query)) {
+                    this.emit(ManagerEventTypes.Debug, `[MANAGER] Skipping JioSaavn because query is a URL: ${_query.query}`);
+                    continue;
+                }
+
+                this.emit(ManagerEventTypes.Debug, `[MANAGER] Trying jiosaavn for: ${_query.query}`);
+
+                try {
+                    const res = await fetch(`https://jiosaavn-flame.vercel.app/api/search?q=${encodeURIComponent(_query.query)}`);
+                    const data = await res.json();
+                    if (!data?.results?.length) continue;
+
+                    const firstUri = data.results[0].uri;
+                    const lavalinkRes = await node.rest.get(`/v4/loadtracks?identifier=${encodeURIComponent(firstUri)}`);
+                    if (!lavalinkRes || lavalinkRes.loadType === Utils_1.LoadTypes.Empty || lavalinkRes.loadType === Utils_1.LoadTypes.Error) continue;
+
+                    let tracks = [];
+                    let playlist = null;
+
+                    switch (lavalinkRes.loadType) {
+                        case Utils_1.LoadTypes.Search:
+                            tracks = lavalinkRes.data.map((track) => Utils_1.TrackUtils.build(track, requester));
+                            break;
+                        case Utils_1.LoadTypes.Track:
+                            tracks = [Utils_1.TrackUtils.build(lavalinkRes.data, requester)];
+                            break;
+                        case Utils_1.LoadTypes.Playlist:
+                            const playlistData = lavalinkRes.data;
+                            tracks = playlistData.tracks.map((track) => Utils_1.TrackUtils.build(track, requester));
+                            playlist = {
+                                name: playlistData.info.name,
+                                playlistInfo: playlistData.pluginInfo,
+                                requester: requester,
+                                tracks,
+                                duration: tracks.reduce((acc, cur) => acc + (cur.duration || 0), 0),
+                            };
+                            break;
+                    }
+
+                    const result = { loadType: lavalinkRes.loadType, tracks, playlist };
+                    this.emit(ManagerEventTypes.Debug, `[MANAGER] Success on jiosaavn: ${_query.query}`);
+                    return result;
+                } catch (err) {
+                    this.emit(ManagerEventTypes.Debug, `[MANAGER] Failed on jiosaavn: ${err.message}`);
+                    continue;
+                }
+            }
+
             const searchString = /^https?:\/\//.test(_query.query)
                 ? _query.query
                 : `${prefix}:${_query.query}`;
