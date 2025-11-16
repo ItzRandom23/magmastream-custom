@@ -29,8 +29,6 @@ class Player {
     paused = false;
     /** The volume for the player */
     volume = 100;
-    /** Whether the radio is active or disabled */
-    radio = false;
     /** The Node for the Player. */
     node;
     /** The guild ID for the player. */

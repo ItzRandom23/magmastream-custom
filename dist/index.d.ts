@@ -1406,8 +1406,6 @@ declare class Player {
     paused: boolean;
     /** The volume for the player */
     volume: number;
-    /** Whether the radio is active or disabled */
-    radio: boolean;
     /** The Node for the Player. */
     node: Node;
     /** The guild ID for the player. */
