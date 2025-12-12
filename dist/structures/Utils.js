@@ -320,7 +320,8 @@ class AutoPlayUtils {
                     return result.tracks;
                 }
                 break;
-                            if (!track.uri.includes("spotify")) {
+            case "spotify": {
+                if (!track.uri.includes("spotify")) {
                     const res = await this.manager.search(
                         { query: `${track.title} ${track.author}`, source: Manager_1.SearchPlatform.Spotify },
                         track.requester
@@ -344,7 +345,7 @@ class AutoPlayUtils {
                 if (!recData?.recommendations?.length) return [];
 
                 const first = recData.recommendations[0];
-                const spotifyUrl = first.url; 
+                const spotifyUrl = first.url;
 
                 const requester = track.requester;
 
