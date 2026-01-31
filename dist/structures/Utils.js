@@ -393,7 +393,7 @@ class AutoPlayUtils {
 
                 return final.tracks;
             }
-
+                break;
             case "deezer":
                 {
                     if (!track.uri.includes("deezer")) {
