@@ -10,7 +10,6 @@ const managerCheck_1 = tslib_1.__importDefault(require("../utils/managerCheck"))
 const blockedWords_1 = require("../config/blockedWords");
 const promises_1 = tslib_1.__importDefault(require("fs/promises"));
 const path_1 = tslib_1.__importDefault(require("path"));
-const spotifyUtils_1 = require("../utils/spotifyUtils");
 const { fetch } = require("undici");
 /**
  * The main hub for interacting with Lavalink and using Magmastream,
@@ -45,7 +44,6 @@ class Manager extends events_1.EventEmitter {
         Utils_1.Structure.get("Node").init(this);
         Utils_1.TrackUtils.init(this);
         Utils_1.AutoPlayUtils.init(this);
-        spotifyUtils_1.SpotifyUtils.init(this);
         if (options.trackPartial) {
             Utils_1.TrackUtils.setTrackPartial(options.trackPartial);
             delete options.trackPartial;
@@ -169,6 +167,158 @@ class Manager extends events_1.EventEmitter {
 
         for (const platform of platforms) {
             const prefix = sourcePrefixMap[platform.toLowerCase()] ?? platform;
+             if (platform === "spotify") {
+
+                const artistMatch =
+                    _query.query.match(
+                        /^https?:\/\/open\.spotify\.com\/artist\/([a-zA-Z0-9]+)/
+                    );
+
+                const resolveMatch =
+                    _query.query.match(
+                        /^https?:\/\/open\.spotify\.com\/(track|album|playlist)\/([a-zA-Z0-9]+)/
+                    );
+
+                // Only handle supported Spotify links
+                if (!artistMatch && !resolveMatch) {
+                    continue;
+                }
+
+                this.emit(
+                    ManagerEventTypes.Debug,
+                    `[MANAGER] Using LeoNodes Spotify resolver for: ${_query.query}`
+                );
+
+                try {
+                    const controller = new AbortController();
+                    const timeout = setTimeout(() => controller.abort(), 10000);
+
+                    let apiUrl;
+
+                    if (artistMatch) {
+                        apiUrl =
+                            `http://eu.leonodes.xyz:2450/api/artist-top-tracks?id=${artistMatch[1]}`;
+                    } else {
+                        apiUrl =
+                            `http://eu.leonodes.xyz:2450/api/resolve?url=${encodeURIComponent(_query.query)}&limit=100`;
+                    }
+
+                    let apiRes;
+                    try {
+                        apiRes = await fetch(apiUrl, { signal: controller.signal });
+                    } finally {
+                        clearTimeout(timeout);
+                    }
+
+                    if (!apiRes || !apiRes.ok) {
+                        this.emit(
+                            ManagerEventTypes.Debug,
+                            `[MANAGER] Spotify API failed or timed out`
+                        );
+                        continue;
+                    }
+
+                    const data = await apiRes.json();
+                    if (!data?.items?.length) continue;
+
+                    for (const item of data.items) {
+
+                        const artistString = Array.isArray(item.artists)
+                            ? item.artists.join(" ")
+                            : "";
+
+                        const fallbackQueries = [];
+
+                        if (item.isrc) {
+                            fallbackQueries.push(`dzisrc:${item.isrc}`);
+                        }
+
+                        fallbackQueries.push(
+                            `dzsearch:${item.title} ${artistString}`,
+                            `amsearch:${item.title} ${artistString}`,
+                            `jssearch:${item.title} ${artistString}`,
+                            `scsearch:${item.title} ${artistString}`
+                        );
+
+                        for (const q of fallbackQueries) {
+                            this.emit(
+                                ManagerEventTypes.Debug,
+                                `[MANAGER] Trying ${q}`
+                            );
+
+                            let res;
+                            try {
+                                res = await node.rest.get(
+                                    `/v4/loadtracks?identifier=${encodeURIComponent(q)}`
+                                );
+                            } catch {
+                                continue;
+                            }
+
+                            if (!res ||
+                                res.loadType === Utils_1.LoadTypes.Empty ||
+                                res.loadType === Utils_1.LoadTypes.Error) {
+                                continue;
+                            }
+
+                            let tracks = [];
+                            let playlist = null;
+
+                            switch (res.loadType) {
+                                case Utils_1.LoadTypes.Search:
+                                    tracks = res.data.map(t =>
+                                        Utils_1.TrackUtils.build(t, requester)
+                                    );
+                                    break;
+
+                                case Utils_1.LoadTypes.Track:
+                                    tracks = [
+                                        Utils_1.TrackUtils.build(res.data, requester)
+                                    ];
+                                    break;
+
+                                case Utils_1.LoadTypes.Playlist:
+                                    const p = res.data;
+                                    tracks = p.tracks.map(t =>
+                                        Utils_1.TrackUtils.build(t, requester)
+                                    );
+
+                                    playlist = {
+                                        name: p.info.name,
+                                        playlistInfo: p.pluginInfo,
+                                        requester,
+                                        tracks,
+                                        duration: tracks.reduce(
+                                            (a, c) => a + (c.duration || 0), 0
+                                        ),
+                                    };
+                                    break;
+                            }
+
+                            if (tracks.length) {
+                                this.emit(
+                                    ManagerEventTypes.Debug,
+                                    `[MANAGER] Spotify resolved via ${q}`
+                                );
+
+                                return {
+                                    loadType: res.loadType,
+                                    tracks,
+                                    playlist
+                                };
+                            }
+                        }
+                    }
+
+                } catch (err) {
+                    this.emit(
+                        ManagerEventTypes.Debug,
+                        `[MANAGER] Spotify search failed: ${err.message}`
+                    );
+                }
+
+                continue;
+            }
 
             const searchString = /^https?:\/\//.test(_query.query)
                 ? _query.query
@@ -218,48 +368,6 @@ class Manager extends events_1.EventEmitter {
             playlist: null
         };
 
-    }
-
-    /**
-     * Searches for tracks using Spotify API with Lavalink fallback
-     * @param query The search query
-     * @param requester The user who requested the search
-     * @returns The search result
-     */
-    async spotifySearch(query, requester) {
-        return await spotifyUtils_1.SpotifyUtils.spotifySearch(query, requester);
-    }
-
-    /**
-     * Resolves a Spotify URL (playlist, album, or track)
-     * @param url The Spotify URL to resolve
-     * @param limit Optional limit for number of tracks
-     * @param requester The user who requested the resolution
-     * @returns The resolved tracks
-     */
-    async spotifyResolve(url, limit, requester) {
-        return await spotifyUtils_1.SpotifyUtils.spotifyResolve(url, limit, requester);
-    }
-
-    /**
-     * Fetches an artist's top tracks from Spotify
-     * @param artistId The Spotify artist ID
-     * @param requester The user who requested the tracks
-     * @returns The artist's top tracks
-     */
-    async artistTopTracks(artistId, requester) {
-        return await spotifyUtils_1.SpotifyUtils.artistTopTracks(artistId, requester);
-    }
-
-    /**
-     * Fetches recommended tracks based on a Spotify track
-     * @param url The Spotify track URL
-     * @param limit Optional limit for number of recommendations
-     * @param requester The user who requested the recommendations
-     * @returns The recommended tracks
-     */
-    async recommendations(url, limit, requester) {
-        return await spotifyUtils_1.SpotifyUtils.recommendations(url, limit, requester);
     }
 
     /**

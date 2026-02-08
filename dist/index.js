@@ -9,4 +9,3 @@ tslib_1.__exportStar(require("./structures/Plugin"), exports);
 tslib_1.__exportStar(require("./structures/Queue"), exports);
 tslib_1.__exportStar(require("./structures/Rest"), exports);
 tslib_1.__exportStar(require("./structures/Utils"), exports);
-tslib_1.__exportStar(require("./utils/spotifyUtils"), exports);
