@@ -10,6 +10,7 @@ const managerCheck_1 = tslib_1.__importDefault(require("../utils/managerCheck"))
 const blockedWords_1 = require("../config/blockedWords");
 const promises_1 = tslib_1.__importDefault(require("fs/promises"));
 const path_1 = tslib_1.__importDefault(require("path"));
+const spotifyUtils_1 = require("../utils/spotifyUtils");
 const { fetch } = require("undici");
 /**
  * The main hub for interacting with Lavalink and using Magmastream,
@@ -44,6 +45,7 @@ class Manager extends events_1.EventEmitter {
         Utils_1.Structure.get("Node").init(this);
         Utils_1.TrackUtils.init(this);
         Utils_1.AutoPlayUtils.init(this);
+        spotifyUtils_1.SpotifyUtils.init(this);
         if (options.trackPartial) {
             Utils_1.TrackUtils.setTrackPartial(options.trackPartial);
             delete options.trackPartial;
@@ -168,56 +170,6 @@ class Manager extends events_1.EventEmitter {
         for (const platform of platforms) {
             const prefix = sourcePrefixMap[platform.toLowerCase()] ?? platform;
 
-            if (platform === "jiosaavn") {
-
-                if (/^https?:\/\//.test(_query.query)) {
-                    this.emit(ManagerEventTypes.Debug, `[MANAGER] Skipping JioSaavn because query is a URL: ${_query.query}`);
-                    continue;
-                }
-
-                this.emit(ManagerEventTypes.Debug, `[MANAGER] Trying jiosaavn for: ${_query.query}`);
-
-                try {
-                    const res = await fetch(`https://jiosaavn-flame.vercel.app/api/search?q=${encodeURIComponent(_query.query)}`);
-                    const data = await res.json();
-                    if (!data?.results?.length) continue;
-
-                    const firstUri = data.results[0].uri;
-                    const lavalinkRes = await node.rest.get(`/v4/loadtracks?identifier=${encodeURIComponent(firstUri)}`);
-                    if (!lavalinkRes || lavalinkRes.loadType === Utils_1.LoadTypes.Empty || lavalinkRes.loadType === Utils_1.LoadTypes.Error) continue;
-
-                    let tracks = [];
-                    let playlist = null;
-
-                    switch (lavalinkRes.loadType) {
-                        case Utils_1.LoadTypes.Search:
-                            tracks = lavalinkRes.data.map((track) => Utils_1.TrackUtils.build(track, requester));
-                            break;
-                        case Utils_1.LoadTypes.Track:
-                            tracks = [Utils_1.TrackUtils.build(lavalinkRes.data, requester)];
-                            break;
-                        case Utils_1.LoadTypes.Playlist:
-                            const playlistData = lavalinkRes.data;
-                            tracks = playlistData.tracks.map((track) => Utils_1.TrackUtils.build(track, requester));
-                            playlist = {
-                                name: playlistData.info.name,
-                                playlistInfo: playlistData.pluginInfo,
-                                requester: requester,
-                                tracks,
-                                duration: tracks.reduce((acc, cur) => acc + (cur.duration || 0), 0),
-                            };
-                            break;
-                    }
-
-                    const result = { loadType: lavalinkRes.loadType, tracks, playlist };
-                    this.emit(ManagerEventTypes.Debug, `[MANAGER] Success on jiosaavn: ${_query.query}`);
-                    return result;
-                } catch (err) {
-                    this.emit(ManagerEventTypes.Debug, `[MANAGER] Failed on jiosaavn: ${err.message}`);
-                    continue;
-                }
-            }
-
             const searchString = /^https?:\/\//.test(_query.query)
                 ? _query.query
                 : `${prefix}:${_query.query}`;
@@ -266,6 +218,48 @@ class Manager extends events_1.EventEmitter {
             playlist: null
         };
 
+    }
+
+    /**
+     * Searches for tracks using Spotify API with Lavalink fallback
+     * @param query The search query
+     * @param requester The user who requested the search
+     * @returns The search result
+     */
+    async spotifySearch(query, requester) {
+        return await spotifyUtils_1.SpotifyUtils.spotifySearch(query, requester);
+    }
+
+    /**
+     * Resolves a Spotify URL (playlist, album, or track)
+     * @param url The Spotify URL to resolve
+     * @param limit Optional limit for number of tracks
+     * @param requester The user who requested the resolution
+     * @returns The resolved tracks
+     */
+    async spotifyResolve(url, limit, requester) {
+        return await spotifyUtils_1.SpotifyUtils.spotifyResolve(url, limit, requester);
+    }
+
+    /**
+     * Fetches an artist's top tracks from Spotify
+     * @param artistId The Spotify artist ID
+     * @param requester The user who requested the tracks
+     * @returns The artist's top tracks
+     */
+    async artistTopTracks(artistId, requester) {
+        return await spotifyUtils_1.SpotifyUtils.artistTopTracks(artistId, requester);
+    }
+
+    /**
+     * Fetches recommended tracks based on a Spotify track
+     * @param url The Spotify track URL
+     * @param limit Optional limit for number of recommendations
+     * @param requester The user who requested the recommendations
+     * @returns The recommended tracks
+     */
+    async recommendations(url, limit, requester) {
+        return await spotifyUtils_1.SpotifyUtils.recommendations(url, limit, requester);
     }
 
     /**
