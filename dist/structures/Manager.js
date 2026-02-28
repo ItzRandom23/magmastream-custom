@@ -142,7 +142,7 @@ class Manager extends events_1.EventEmitter {
      * @param sourcePlatforms
      * @returns The search result.
      */
-   
+
     async search(query, requester, sourcePlatforms) {
         const node = this.useableNode;
         if (!node) throw new Error("No available nodes.");
@@ -416,7 +416,7 @@ class Manager extends events_1.EventEmitter {
                         const player = this.create(playerOptions);
                         await player.node.rest.updatePlayer({
                             guildId: state.options.guildId,
-                            data: { voice: { token: state.voiceState.event.token, endpoint: state.voiceState.event.endpoint, sessionId: state.voiceState.sessionId } },
+                            data: { voice: { token: state.voiceState.event.token, endpoint: state.voiceState.event.endpoint, sessionId: state.voiceState.sessionId, channelId: state.options.voiceChannelId } },
                         });
                         player.connect();
                         const tracks = [];
@@ -700,12 +700,27 @@ class Manager extends events_1.EventEmitter {
      */
     async handleVoiceServerUpdate(player, update) {
         player.voiceState.event = update;
-        const { sessionId, event: { token, endpoint }, } = player.voiceState;
+
+        const {
+            sessionId,
+            event: { token, endpoint },
+        } = player.voiceState;
+
+        const channelId = player.voiceChannelId;
+
+        if (!token || !endpoint || !sessionId || !channelId) return;
+
         await player.node.rest.updatePlayer({
             guildId: player.guildId,
-            data: { voice: { token, endpoint, sessionId } },
+            data: {
+                voice: {
+                    token,
+                    endpoint,
+                    sessionId,
+                    channelId,
+                },
+            },
         });
-        return;
     }
     /**
      * Handles a voice state update by updating the player's voice channel and session ID if provided, or by disconnecting and destroying the player if the channel ID is null.
@@ -721,6 +736,25 @@ class Manager extends events_1.EventEmitter {
             }
             player.voiceState.sessionId = update.session_id;
             player.voiceChannelId = update.channel_id;
+
+            if (player.voiceState.event) {
+                const { token, endpoint } = player.voiceState.event;
+                const { sessionId } = player.voiceState;
+
+                if (token && endpoint && sessionId && player.voiceChannelId) {
+                    await player.node.rest.updatePlayer({
+                        guildId: player.guildId,
+                        data: {
+                            voice: {
+                                token,
+                                endpoint,
+                                sessionId,
+                                channelId: player.voiceChannelId,
+                            },
+                        },
+                    });
+                }
+            }
             return;
         }
         this.emit(ManagerEventTypes.PlayerDisconnect, player, player.voiceChannelId);

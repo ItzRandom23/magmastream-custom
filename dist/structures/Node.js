@@ -421,22 +421,68 @@ class Node {
                 await this.handleEvent(payload);
                 break;
             case "ready":
-                this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Node message: ${JSON.stringify(payload)}`);
+                this.manager.emit(
+                    Manager_1.ManagerEventTypes.Debug,
+                    `[NODE] Node message: ${JSON.stringify(payload)}`
+                );
+
                 this.rest.setSessionId(payload.sessionId);
                 this.sessionId = payload.sessionId;
-                this.updateSessionId(); // Call to update session ID
+                this.updateSessionId();
+
                 this.info = await this.fetchInfo();
-                // Log if the session was resumed successfully
+
+                // If session was resumed, restore saved players
                 if (payload.resumed) {
-                    // Load player states from the JSON file
                     await this.manager.loadPlayerStates(this.options.identifier);
                 }
+
+                // Re-enable session resume if configured
                 if (this.options.enableSessionResumeOption) {
                     await this.rest.patch(`/v4/sessions/${this.sessionId}`, {
                         resuming: this.options.enableSessionResumeOption,
                         timeout: this.options.sessionTimeoutMs,
                     });
                 }
+
+                // ==========================
+                // ✅ DAVE VOICE RE-SYNC FIX
+                // ==========================
+                for (const player of this.manager.players.values()) {
+                    if (player.node !== this) continue;
+                    if (!player.voiceChannelId) continue;
+                    if (!player.voiceState?.event) continue;
+
+                    const { token, endpoint } = player.voiceState.event;
+                    const sessionId = player.voiceState.sessionId;
+
+                    if (!token || !endpoint || !sessionId) continue;
+
+                    try {
+                        await this.rest.updatePlayer({
+                            guildId: player.guildId,
+                            data: {
+                                voice: {
+                                    token,
+                                    endpoint,
+                                    sessionId,
+                                    channelId: player.voiceChannelId,
+                                },
+                            },
+                        });
+
+                        this.manager.emit(
+                            Manager_1.ManagerEventTypes.Debug,
+                            `[DAVE] Re-sent voice state for guild ${player.guildId}`
+                        );
+                    } catch (err) {
+                        this.manager.emit(
+                            Manager_1.ManagerEventTypes.Debug,
+                            `[DAVE] Failed to re-sync voice for guild ${player.guildId}: ${err}`
+                        );
+                    }
+                }
+
                 break;
             default:
                 this.manager.emit(Manager_1.ManagerEventTypes.NodeError, this, new Error(`Unexpected op "${payload.op}" with data: ${payload.message}`));
@@ -607,14 +653,14 @@ class Node {
         const lastTrack = player.queue.previous[player.queue.previous.length - 1];
         if (!lastTrack || typeof lastTrack !== "object") {
             console.warn("Autoplay error: lastTrack is null or invalid.");
-            return false; 
+            return false;
         }
 
         const botUser = player.get("Internal_BotUser");
 
         if (!botUser) {
-            console.warn("Autoplay error: Internal_BotUser not found on player."); 
-            return false; 
+            console.warn("Autoplay error: Internal_BotUser not found on player.");
+            return false;
         }
         lastTrack.requester = player.get("Internal_BotUser");
         if (!lastTrack)

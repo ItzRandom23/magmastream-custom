@@ -801,7 +801,7 @@ class Player {
             this.manager.players.set(this.guildId, this);
             await this.node.rest.updatePlayer({
                 guildId: this.guildId,
-                data: { paused: this.paused, volume: this.volume, position: playerPosition, encodedTrack: currentTrack?.track, voice: { token, endpoint, sessionId } },
+                data: { paused: this.paused, volume: this.volume, position: playerPosition, encodedTrack: currentTrack?.track, voice: { token, endpoint, sessionId, channelId: this.voiceChannelId } },
             });
             await this.filters.updateFilters();
         }
