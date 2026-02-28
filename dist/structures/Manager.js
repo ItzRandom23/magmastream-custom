@@ -735,7 +735,7 @@ class Manager extends events_1.EventEmitter {
                 this.emit(ManagerEventTypes.PlayerMove, player, player.voiceChannelId, update.channel_id);
             }
             player.voiceState.sessionId = update.session_id;
-            player.voiceChannelId = update.channel_id;
+            player.voiceChannelId = update.channel_id ?? null;
 
             if (player.voiceState.event) {
                 const { token, endpoint } = player.voiceState.event;
