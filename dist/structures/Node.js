@@ -696,8 +696,14 @@ class Node {
             return;
         }
         this.manager.emit(Manager_1.ManagerEventTypes.TrackEnd, player, track, payload);
-        if (this.manager.options.playNextOnEnd)
-            await player.play();
+        if (this.manager.options.playNextOnEnd) {
+            if (player.queue.current) {
+                await player.play();
+            }
+            else {
+                await this.queueEnd(player, track, payload);
+            }
+        }
     }
     /**
      * Handles the scenario when a track is repeated.
@@ -736,8 +742,14 @@ class Node {
             return;
         }
         // If autoplay is enabled, play the next track
-        if (playNextOnEnd)
-            await player.play();
+        if (playNextOnEnd) {
+            if (queue.current) {
+                await player.play();
+            }
+            else {
+                await this.queueEnd(player, track, payload);
+            }
+        }
     }
     /**
      * Plays the next track in the queue.
@@ -756,8 +768,14 @@ class Node {
         // Emit the track end event
         this.manager.emit(Manager_1.ManagerEventTypes.TrackEnd, player, track, payload);
         // If autoplay is enabled, play the next track
-        if (this.manager.options.playNextOnEnd)
-            await player.play();
+        if (this.manager.options.playNextOnEnd) {
+            if (player.queue.current) {
+                await player.play();
+            }
+            else {
+                await this.queueEnd(player, track, payload);
+            }
+        }
     }
     /**
      * Handles the event when a queue ends.

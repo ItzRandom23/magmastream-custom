@@ -21,6 +21,8 @@ class Manager extends events_1.EventEmitter {
     /** The options that were set. */
     options;
     initiated = false;
+    voiceUpdateDedupCache = new Map();
+    voiceUpdateDedupWindowMs = 3000;
     /**
      * Initiates the Manager class.
      * @param options
@@ -686,16 +688,16 @@ class Manager extends events_1.EventEmitter {
         const channelId = player.voiceChannelId;
 
         if (!token || !endpoint || !sessionId || !channelId) return;
+        const voicePayload = { token, endpoint, sessionId, channelId };
+        if (!this.shouldSendVoiceUpdate(player.guildId, voicePayload)) {
+            this.emit(ManagerEventTypes.Debug, `[MANAGER] Skipping duplicate voice update for guild ${player.guildId}`);
+            return;
+        }
 
         await player.node.rest.updatePlayer({
             guildId: player.guildId,
             data: {
-                voice: {
-                    token,
-                    endpoint,
-                    sessionId,
-                    channelId,
-                },
+                voice: voicePayload,
             },
         });
     }
@@ -719,15 +721,20 @@ class Manager extends events_1.EventEmitter {
                 const { sessionId } = player.voiceState;
 
                 if (token && endpoint && sessionId && player.voiceChannelId) {
+                    const voicePayload = {
+                        token,
+                        endpoint,
+                        sessionId,
+                        channelId: player.voiceChannelId,
+                    };
+                    if (!this.shouldSendVoiceUpdate(player.guildId, voicePayload)) {
+                        this.emit(ManagerEventTypes.Debug, `[MANAGER] Skipping duplicate voice update for guild ${player.guildId}`);
+                        return;
+                    }
                     await player.node.rest.updatePlayer({
                         guildId: player.guildId,
                         data: {
-                            voice: {
-                                token,
-                                endpoint,
-                                sessionId,
-                                channelId: player.voiceChannelId,
-                            },
+                            voice: voicePayload,
                         },
                     });
                 }
@@ -739,6 +746,16 @@ class Manager extends events_1.EventEmitter {
         player.voiceState = Object.assign({});
         await player.destroy();
         return;
+    }
+    shouldSendVoiceUpdate(guildId, payload) {
+        const now = Date.now();
+        const signature = `${payload.token}|${payload.endpoint}|${payload.sessionId}|${payload.channelId}`;
+        const previous = this.voiceUpdateDedupCache.get(guildId);
+        if (previous && previous.signature === signature && (now - previous.timestamp) <= this.voiceUpdateDedupWindowMs) {
+            return false;
+        }
+        this.voiceUpdateDedupCache.set(guildId, { signature, timestamp: now });
+        return true;
     }
     /**
      * Gets each player's JSON file
