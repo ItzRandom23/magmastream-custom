@@ -46,8 +46,8 @@ class TrackUtils {
             Manager_1.TrackPartial.PluginInfo,
             Manager_1.TrackPartial.CustomData,
         ];
-        /** The array of property names that will be removed from the Track class */
-        this.trackPartial = Array.from(new Set([...defaultProperties, ...partial]));
+        /** The array of property names to keep on each built track */
+        this.trackPartial = Array.from(new Set(partial));
         /** Make sure that the "track" property is always included */
         if (!this.trackPartial.includes(Manager_1.TrackPartial.Track))
             this.trackPartial.unshift(Manager_1.TrackPartial.Track);
@@ -67,7 +67,11 @@ class TrackUtils {
                 return false;
             }
             const t = track;
-            return (typeof t.track === "string" && typeof t.title === "string" && typeof t.identifier === "string" && typeof t.isrc === "string" && typeof t.uri === "string");
+            return (typeof t.track === "string" &&
+                typeof t.title === "string" &&
+                typeof t.identifier === "string" &&
+                (typeof t.isrc === "string" || typeof t.isrc === "undefined" || t.isrc === null) &&
+                typeof t.uri === "string");
         };
         if (Array.isArray(trackOrTracks)) {
             return trackOrTracks.every(isValidTrack);
@@ -92,7 +96,6 @@ class TrackUtils {
                 soundcloud: "SoundCloud",
                 spotify: "Spotify",
                 tidal: "Tidal",
-                youtube: "YouTube",
                 vkmusic: "VKMusic",
                 qobuz: "Qobuz"
             };
@@ -108,10 +111,9 @@ class TrackUtils {
                 uri: data.info.uri,
                 artworkUrl: data.info?.artworkUrl,
                 sourceName: sourceNameMap[data.info?.sourceName?.toLowerCase() ?? ""] ?? data.info?.sourceName,
-                thumbnail: data.info.uri.includes("youtube") ? `https://img.youtube.com/vi/${data.info.identifier}/default.jpg` : null,
+                thumbnail: null,
                 displayThumbnail(size = "default") {
-                    const finalSize = SIZES.find((s) => s === size) ?? "default";
-                    return this.uri.includes("youtube") ? `https://img.youtube.com/vi/${data.info.identifier}/${finalSize}.jpg` : null;
+                    return null;
                 },
                 requester: requester,
                 pluginInfo: data.pluginInfo,
@@ -157,7 +159,11 @@ class AutoPlayUtils {
         }
         const apiKey = this.manager.options.lastFmApiKey;
         const enabledSources = node.info.sourceManagers;
-        const autoPlaySearchPlatforms = this.manager.options.autoPlaySearchPlatforms;
+        const autoPlaySearchPlatforms = this.manager.options.autoPlaySearchPlatforms ?? [
+            Manager_1.AutoPlayPlatform.Spotify,
+            Manager_1.AutoPlayPlatform.Deezer,
+            Manager_1.AutoPlayPlatform.Jiosaavn,
+        ];
         // Iterate over autoplay platforms in order of priority
         for (const platform of autoPlaySearchPlatforms) {
             if (enabledSources.includes(platform)) {
@@ -550,34 +556,6 @@ class AutoPlayUtils {
                     }
                 }
                 break;
-            case "youtube":
-                {
-                    const hasYouTubeURL = ["youtube.com", "youtu.be"].some((url) => track.uri.includes(url));
-                    let videoID = null;
-                    if (hasYouTubeURL) {
-                        videoID = track.uri.split("=").pop();
-                    }
-                    else {
-                        const searchResult = await this.manager.search({ query: `${track.author} - ${track.title}`, source: Manager_1.SearchPlatform.YouTube }, track.requester);
-                        videoID = searchResult.tracks[0]?.uri.split("=").pop();
-                    }
-                    if (!videoID) {
-                        return [];
-                    }
-                    let randomIndex;
-                    let searchURI;
-                    do {
-                        randomIndex = Math.floor(Math.random() * 23) + 2;
-                        searchURI = `https://www.youtube.com/watch?v=${videoID}&list=RD${videoID}&index=${randomIndex}`;
-                    } while (track.uri.includes(searchURI));
-                    const res = await this.manager.search({ query: searchURI, source: Manager_1.SearchPlatform.YouTube }, track.requester);
-                    if (res.loadType === LoadTypes.Empty || res.loadType === LoadTypes.Error) {
-                        return [];
-                    }
-                    const filteredTracks = res.tracks.filter((t) => t.uri !== track.uri);
-                    return filteredTracks;
-                }
-                break;
             case "tidal":
                 {
                     if (!track.uri.includes("tidal")) {
@@ -772,5 +750,4 @@ var TrackSourceTypes;
     TrackSourceTypes["Spotify"] = "spotify";
     TrackSourceTypes["Tidal"] = "tidal";
     TrackSourceTypes["VKMusic"] = "vkmusic";
-    TrackSourceTypes["YouTube"] = "youtube";
 })(TrackSourceTypes || (exports.TrackSourceTypes = TrackSourceTypes = {}));

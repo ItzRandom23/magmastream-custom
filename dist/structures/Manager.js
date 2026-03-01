@@ -7,7 +7,6 @@ const collection_1 = require("@discordjs/collection");
 const events_1 = require("events");
 const __1 = require("..");
 const managerCheck_1 = tslib_1.__importDefault(require("../utils/managerCheck"));
-const blockedWords_1 = require("../config/blockedWords");
 const promises_1 = tslib_1.__importDefault(require("fs/promises"));
 const path_1 = tslib_1.__importDefault(require("path"));
 const { fetch } = require("undici");
@@ -62,6 +61,7 @@ class Manager extends events_1.EventEmitter {
             enablePriorityMode: false,
             clientName: "Magmastream",
             defaultSearchPlatform: SearchPlatform.Deezer,
+            autoPlaySearchPlatforms: [AutoPlayPlatform.Spotify, AutoPlayPlatform.Deezer, AutoPlayPlatform.Jiosaavn],
             useNode: UseNodeOptions.LeastPlayers,
             maxPreviousTracks: options.maxPreviousTracks ?? 20,
             ...options,
@@ -150,8 +150,6 @@ class Manager extends events_1.EventEmitter {
         const _query = typeof query === "string" ? { query } : query;
 
         const sourcePrefixMap = {
-            youtube: "ytsearch",
-            ytmusic: "ytmsearch",
             soundcloud: "scsearch",
             deezer: "dzsearch",
             spotify: "spsearch",
@@ -164,6 +162,20 @@ class Manager extends events_1.EventEmitter {
         const platforms = Array.isArray(sourcePlatforms)
             ? sourcePlatforms
             : [sourcePlatforms ?? _query.source ?? this.options.defaultSearchPlatform];
+
+        const hasYouTubeUrl = /(?:youtube\.com|youtu\.be)/i.test(_query.query);
+        const hasYouTubeSource = platforms.some((platform) => {
+            const normalized = String(platform).toLowerCase();
+            return normalized === "youtube" || normalized === "ytmusic" || normalized === "ytsearch" || normalized === "ytmsearch";
+        });
+        if (hasYouTubeUrl || hasYouTubeSource) {
+            this.emit(ManagerEventTypes.Debug, `[MANAGER] YouTube support is disabled. Query rejected: ${_query.query}`);
+            return {
+                loadType: Utils_1.LoadTypes.Empty,
+                tracks: [],
+                playlist: null
+            };
+        }
 
         for (const platform of platforms) {
             const prefix = sourcePrefixMap[platform.toLowerCase()] ?? platform;
@@ -246,8 +258,10 @@ class Manager extends events_1.EventEmitter {
     async destroy(guildId) {
         // Emit debug message for player destruction
         this.emit(ManagerEventTypes.Debug, `[MANAGER] Destroying player: ${guildId}`);
-        // Remove the player from the manager's collection
-        this.players.delete(guildId);
+        const player = this.players.get(guildId);
+        if (player) {
+            await player.destroy();
+        }
         // Clean up any inactive players
         await this.cleanupInactivePlayers();
     }
@@ -590,43 +604,6 @@ class Manager extends events_1.EventEmitter {
             console.error("Unexpected error during shutdown:", error);
             process.exit(1);
         }
-    }
-    /**
-     * Parses a YouTube title into a clean title and author.
-     * @param title - The original title of the YouTube video.
-     * @param originalAuthor - The original author of the YouTube video.
-     * @returns An object with the clean title and author.
-     */
-    parseYouTubeTitle(title, originalAuthor) {
-        // Remove "- Topic" from author and "Topic -" from title
-        const cleanAuthor = originalAuthor.replace("- Topic", "").trim();
-        title = title.replace("Topic -", "").trim();
-        // Remove blocked words and phrases
-        const escapedBlockedWords = blockedWords_1.blockedWords.map((word) => this.escapeRegExp(word));
-        const blockedWordsPattern = new RegExp(`\\b(${escapedBlockedWords.join("|")})\\b`, "gi");
-        title = title.replace(blockedWordsPattern, "").trim();
-        // Remove empty brackets and balance remaining brackets
-        title = title
-            .replace(/[([{]\s*[)\]}]/g, "") // Empty brackets
-            .replace(/^[^\w\d]*|[^\w\d]*$/g, "") // Leading/trailing non-word characters
-            .replace(/\s{2,}/g, " ") // Multiple spaces
-            .trim();
-        // Remove '@' symbol before usernames
-        title = title.replace(/@(\w+)/g, "$1");
-        // Balance remaining brackets
-        title = this.balanceBrackets(title);
-        // Check if the title contains a hyphen, indicating potential "Artist - Title" format
-        if (title.includes(" - ")) {
-            const [artist, songTitle] = title.split(" - ").map((part) => part.trim());
-            // If the artist part matches or is included in the clean author, use the clean author
-            if (artist.toLowerCase() === cleanAuthor.toLowerCase() || cleanAuthor.toLowerCase().includes(artist.toLowerCase())) {
-                return { cleanAuthor, cleanTitle: songTitle };
-            }
-            // If the artist is different, keep both parts
-            return { cleanAuthor: artist, cleanTitle: songTitle };
-        }
-        // If no clear artist-title separation, return clean author and cleaned title
-        return { cleanAuthor, cleanTitle: title };
     }
     /**
      * Balances brackets in a given string by ensuring all opened brackets are closed correctly.
@@ -975,8 +952,6 @@ var SearchPlatform;
     SearchPlatform["Qobuz"] = "qbsearch";
     SearchPlatform["Tidal"] = "tdsearch";
     SearchPlatform["VKMusic"] = "vksearch";
-    SearchPlatform["YouTube"] = "ytsearch";
-    SearchPlatform["YouTubeMusic"] = "ytmsearch";
 })(SearchPlatform || (exports.SearchPlatform = SearchPlatform = {}));
 var AutoPlayPlatform;
 (function (AutoPlayPlatform) {
@@ -986,7 +961,6 @@ var AutoPlayPlatform;
     AutoPlayPlatform["SoundCloud"] = "soundcloud";
     AutoPlayPlatform["Tidal"] = "tidal";
     AutoPlayPlatform["VKMusic"] = "vkmusic";
-    AutoPlayPlatform["YouTube"] = "youtube";
 })(AutoPlayPlatform || (exports.AutoPlayPlatform = AutoPlayPlatform = {}));
 var PlayerStateEventTypes;
 (function (PlayerStateEventTypes) {

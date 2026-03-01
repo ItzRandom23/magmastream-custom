@@ -227,8 +227,10 @@ class Node {
      * @returns {Promise<void>} A promise that resolves when the node and its resources have been destroyed.
      */
     async destroy() {
-        if (!this.connected)
+        if (!this.connected) {
+            this.manager.nodes.delete(this.options.identifier);
             return;
+        }
         // Emit a debug event indicating that the node is being destroyed
         const debugInfo = {
             connected: this.connected,
@@ -254,8 +256,8 @@ class Node {
         clearTimeout(this.reconnectTimeout);
         // Emit a "nodeDestroy" event with the node as the argument
         this.manager.emit(Manager_1.ManagerEventTypes.NodeDestroy, this);
-        // Destroy the node from the manager
-        await this.manager.destroyNode(this.options.identifier);
+        // Remove the node from manager storage.
+        this.manager.nodes.delete(this.options.identifier);
     }
     /**
      * Attempts to reconnect to the node if the connection is lost.

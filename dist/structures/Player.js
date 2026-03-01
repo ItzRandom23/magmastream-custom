@@ -95,8 +95,8 @@ class Player {
         this.queue.previous = new Array();
         // Add the player to the manager's player collection.
         this.manager.players.set(options.guildId, this);
-        // Set the initial volume.
-        this.setVolume(options.volume ?? 100);
+        // Set the initial volume locally. A REST sync can happen later once session is ready.
+        this.volume = options.volume ?? 100;
         // Initialize the filters.
         this.filters = new Filters_1.Filters(this);
         // Emit the playerCreate event.
@@ -375,6 +375,7 @@ class Player {
      * @returns {this} - The player instance.
      */
     setAutoplay(autoplayState, botUser, tries) {
+        const oldPlayer = { ...this };
         if (typeof autoplayState !== "boolean") {
             throw new Error("autoplayState must be a boolean.");
         }
@@ -394,7 +395,6 @@ class Player {
             this.autoplayTries = null;
             this.set("Internal_BotUser", null);
         }
-        const oldPlayer = { ...this };
         this.manager.emit(Manager_1.ManagerEventTypes.PlayerStateUpdate, oldPlayer, this, {
             changeType: Manager_1.PlayerStateEventTypes.AutoPlayChange,
             details: {
@@ -494,7 +494,7 @@ class Player {
         // Emit an event indicating the repeat mode has changed
         this.manager.emit(Manager_1.ManagerEventTypes.PlayerStateUpdate, oldPlayer, this, {
             changeType: Manager_1.PlayerStateEventTypes.RepeatChange,
-            detail: {
+            details: {
                 changeType: "track",
                 previousRepeat: this.getRepeatState(oldPlayer),
                 currentRepeat: this.getRepeatState(this),
@@ -528,7 +528,7 @@ class Player {
         // Emit the player state update event
         this.manager.emit(Manager_1.ManagerEventTypes.PlayerStateUpdate, oldPlayer, this, {
             changeType: Manager_1.PlayerStateEventTypes.RepeatChange,
-            detail: {
+            details: {
                 changeType: "queue",
                 previousRepeat: this.getRepeatState(oldPlayer),
                 currentRepeat: this.getRepeatState(this),
@@ -585,7 +585,7 @@ class Player {
         // Emit a player state update event
         this.manager.emit(Manager_1.ManagerEventTypes.PlayerStateUpdate, oldPlayer, this, {
             changeType: Manager_1.PlayerStateEventTypes.RepeatChange,
-            detail: {
+            details: {
                 changeType: "dynamic",
                 previousRepeat: this.getRepeatState(oldPlayer),
                 currentRepeat: this.getRepeatState(this),
@@ -631,7 +631,7 @@ class Player {
             removedTracks = this.queue.slice(0, amount - 1);
             this.queue.splice(0, amount - 1);
         }
-        this.node.rest.updatePlayer({
+        await this.node.rest.updatePlayer({
             guildId: this.guildId,
             data: {
                 encodedTrack: null,
@@ -793,17 +793,23 @@ class Player {
         }
         try {
             const playerPosition = this.position;
-            const { sessionId, event: { token, endpoint }, } = this.voiceState;
+            const sessionId = this.voiceState?.sessionId;
+            const token = this.voiceState?.event?.token;
+            const endpoint = this.voiceState?.event?.endpoint;
             const currentTrack = this.queue.current ? this.queue.current : null;
             await this.node.rest.destroyPlayer(this.guildId).catch(() => { });
             this.manager.players.delete(this.guildId);
             this.node = node;
             this.manager.players.set(this.guildId, this);
+            const voice = token && endpoint && sessionId && this.voiceChannelId
+                ? { token, endpoint, sessionId, channelId: this.voiceChannelId }
+                : undefined;
             await this.node.rest.updatePlayer({
                 guildId: this.guildId,
-                data: { paused: this.paused, volume: this.volume, position: playerPosition, encodedTrack: currentTrack?.track, voice: { token, endpoint, sessionId, channelId: this.voiceChannelId } },
+                data: { paused: this.paused, volume: this.volume, position: playerPosition, encodedTrack: currentTrack?.track, ...(voice ? { voice } : {}) },
             });
             await this.filters.updateFilters();
+            return this;
         }
         catch (error) {
             throw new Error(`Failed to move player to node ${identifier}: ${error}`);
@@ -909,8 +915,11 @@ class Player {
      * @throws {RangeError} - If the 'lavalyrics-plugin' is not available on the Lavalink node.
      */
     async getCurrentLyrics(skipTrackSource = false) {
+        if (!this.queue.current) {
+            throw new RangeError("No current track to fetch lyrics for.");
+        }
         // Check if the 'lavalyrics-plugin' is available on the node
-        const hasLyricsPlugin = this.node.info.plugins.some((plugin) => plugin.name === "lavalyrics-plugin");
+        const hasLyricsPlugin = this.node.info?.plugins?.some((plugin) => plugin.name === "lavalyrics-plugin");
         if (!hasLyricsPlugin) {
             throw new RangeError(`There is no lavalyrics-plugin available in the Lavalink node: ${this.node.options.identifier}`);
         }

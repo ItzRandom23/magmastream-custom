@@ -10,9 +10,9 @@ const Manager_1 = require("../structures/Manager");
 function managerCheck(options) {
     if (!options)
         throw new TypeError("ManagerOptions must not be empty.");
-    const { playNextOnEnd, clientName, defaultSearchPlatform, autoPlaySearchPlatforms, nodes, enabledPlugins, send, trackPartial, enablePriorityMode, useNode, normalizeYouTubeTitles, lastFmApiKey, maxPreviousTracks, } = options;
+    const { playNextOnEnd, clientName, defaultSearchPlatform, autoPlaySearchPlatforms, nodes, enabledPlugins, send, trackPartial, enablePriorityMode, useNode, lastFmApiKey, maxPreviousTracks, } = options;
     // Validate playNextOnEnd option
-    if (typeof playNextOnEnd !== "boolean") {
+    if (typeof playNextOnEnd !== "undefined" && typeof playNextOnEnd !== "boolean") {
         throw new TypeError('Manager option "playNextOnEnd" must be a boolean.');
     }
     // Validate clientName option
@@ -37,7 +37,7 @@ function managerCheck(options) {
         }
     }
     // Validate nodes option
-    if (typeof nodes === "undefined" || !Array.isArray(nodes)) {
+    if (typeof nodes !== "undefined" && !Array.isArray(nodes)) {
         throw new TypeError('Manager option "nodes" must be an array.');
     }
     // Validate enabledPlugins option
@@ -62,7 +62,7 @@ function managerCheck(options) {
         throw new TypeError('Manager option "enablePriorityMode" must be a boolean.');
     }
     // Validate node priority if enablePriorityMode is enabled
-    if (enablePriorityMode) {
+    if (enablePriorityMode && Array.isArray(nodes)) {
         for (let index = 0; index < nodes.length; index++) {
             if (typeof nodes[index].nodePriority !== "number" || isNaN(nodes[index].nodePriority)) {
                 throw new TypeError(`Missing or invalid node option "nodePriority" at position ${index}`);
@@ -77,10 +77,6 @@ function managerCheck(options) {
         if (!Object.values(Manager_1.UseNodeOptions).includes(useNode)) {
             throw new TypeError('Manager option "useNode" must be either "leastLoad" or "leastPlayers".');
         }
-    }
-    // Validate normalizeYouTubeTitles option
-    if (typeof normalizeYouTubeTitles !== "undefined" && typeof normalizeYouTubeTitles !== "boolean") {
-        throw new TypeError('Manager option "normalizeYouTubeTitles" must be a boolean.');
     }
     // Validate lastFmApiKey option
     if (typeof lastFmApiKey !== "undefined" && (typeof lastFmApiKey !== "string" || lastFmApiKey.trim().length === 0)) {

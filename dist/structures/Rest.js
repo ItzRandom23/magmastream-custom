@@ -53,8 +53,17 @@ class Rest {
         // Log the request.
         if (!this.node.sessionId) return;
         this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[REST] Updating player: ${options.guildId}: ${JSON.stringify(options)}`);
+        const data = options?.data && typeof options.data === "object" ? { ...options.data } : options.data;
+        const noReplace = typeof options?.noReplace === "boolean"
+            ? options.noReplace
+            : typeof data?.noReplace === "boolean"
+                ? data.noReplace
+                : false;
+        if (data && typeof data === "object" && "noReplace" in data) {
+            delete data.noReplace;
+        }
         // Send the PATCH request.
-        return await this.patch(`/v4/sessions/${this.node.sessionId}/players/${options.guildId}?noReplace=false`, options.data);
+        return await this.patch(`/v4/sessions/${this.node.sessionId}/players/${options.guildId}?noReplace=${noReplace}`, data);
     }
     /**
      * Sends a DELETE request to the server to destroy the player.

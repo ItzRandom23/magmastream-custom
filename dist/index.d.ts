@@ -777,8 +777,7 @@ declare enum TrackSourceTypes {
     SoundCloud = "soundcloud",
     Spotify = "spotify",
     Tidal = "tidal",
-    VKMusic = "vkmusic",
-    YouTube = "youtube"
+    VKMusic = "vkmusic"
 }
 type TrackSourceName = keyof typeof TrackSourceTypes;
 interface Extendable {
@@ -1030,13 +1029,6 @@ declare class Manager extends EventEmitter {
      */
     handleShutdown(): Promise<void>;
     /**
-     * Parses a YouTube title into a clean title and author.
-     * @param title - The original title of the YouTube video.
-     * @param originalAuthor - The original author of the YouTube video.
-     * @returns An object with the clean title and author.
-     */
-    private parseYouTubeTitle;
-    /**
      * Balances brackets in a given string by ensuring all opened brackets are closed correctly.
      * @param str - The input string that may contain unbalanced brackets.
      * @returns A new string with balanced brackets.
@@ -1158,8 +1150,6 @@ interface ManagerOptions {
     maxPreviousTracks?: number;
     /** The array of nodes to connect to. */
     nodes?: NodeOptions[];
-    /** Whether the YouTube video titles should be replaced if the Author does not exactly match. */
-    normalizeYouTubeTitles?: boolean;
     /** An array of track properties to keep. `track` will always be present. */
     trackPartial?: TrackPartial[];
     /** Use the least amount of players or least load? */
@@ -1217,17 +1207,14 @@ declare enum SearchPlatform {
     Spotify = "spsearch",
     Qobuz = "qbsearch",
     Tidal = "tdsearch",
-    VKMusic = "vksearch",
-    YouTube = "ytsearch",
-    YouTubeMusic = "ytmsearch"
+    VKMusic = "vksearch"
 }
 declare enum AutoPlayPlatform {
     Spotify = "spotify",
     Deezer = "deezer",
     SoundCloud = "soundcloud",
     Tidal = "tidal",
-    VKMusic = "vkmusic",
-    YouTube = "youtube"
+    VKMusic = "vkmusic"
 }
 declare enum PlayerStateEventTypes {
     AutoPlayChange = "playerAutoplay",
