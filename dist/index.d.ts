@@ -771,9 +771,11 @@ interface TrackDataInfo {
 }
 declare enum TrackSourceTypes {
     AppleMusic = "applemusic",
+    AudioMack = "audiomack",
     Bandcamp = "bandcamp",
     Deezer = "deezer",
     Jiosaavn = "jiosaavn",
+    Qobuz = "qobuz",
     SoundCloud = "soundcloud",
     Spotify = "spotify",
     Tidal = "tidal",
@@ -1200,6 +1202,7 @@ declare enum UseNodeOptions {
 type UseNodeOption = keyof typeof UseNodeOptions;
 declare enum SearchPlatform {
     AppleMusic = "amsearch",
+    AudioMack = "admsearch",
     Bandcamp = "bcsearch",
     Deezer = "dzsearch",
     Jiosaavn = "jssearch",

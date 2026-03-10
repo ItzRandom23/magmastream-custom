@@ -157,6 +157,7 @@ class Manager extends events_1.EventEmitter {
             spotify: "spsearch",
             jiosaavn: "jssearch",
             applemusic: "amsearch",
+            audiomack: "admsearch",
             qobuz: "qbsearch",
             tidal: "tdsearch",
         };
@@ -961,6 +962,7 @@ var UseNodeOptions;
 var SearchPlatform;
 (function (SearchPlatform) {
     SearchPlatform["AppleMusic"] = "amsearch";
+    SearchPlatform["AudioMack"] = "admsearch";
     SearchPlatform["Bandcamp"] = "bcsearch";
     SearchPlatform["Deezer"] = "dzsearch";
     SearchPlatform["Jiosaavn"] = "jssearch";

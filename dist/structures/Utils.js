@@ -90,6 +90,7 @@ class TrackUtils {
         try {
             const sourceNameMap = {
                 applemusic: "AppleMusic",
+                audiomack: "AudioMack",
                 bandcamp: "Bandcamp",
                 deezer: "Deezer",
                 jiosaavn: "Jiosaavn",
@@ -743,9 +744,11 @@ var SeverityTypes;
 var TrackSourceTypes;
 (function (TrackSourceTypes) {
     TrackSourceTypes["AppleMusic"] = "applemusic";
+    TrackSourceTypes["AudioMack"] = "audiomack";
     TrackSourceTypes["Bandcamp"] = "bandcamp";
     TrackSourceTypes["Deezer"] = "deezer";
     TrackSourceTypes["Jiosaavn"] = "jiosaavn";
+    TrackSourceTypes["Qobuz"] = "qobuz";
     TrackSourceTypes["SoundCloud"] = "soundcloud";
     TrackSourceTypes["Spotify"] = "spotify";
     TrackSourceTypes["Tidal"] = "tidal";
