@@ -93,6 +93,7 @@ class TrackUtils {
                 audiomack: "AudioMack",
                 bandcamp: "Bandcamp",
                 deezer: "Deezer",
+                gaana: "Gaana",
                 jiosaavn: "Jiosaavn",
                 soundcloud: "SoundCloud",
                 spotify: "Spotify",
@@ -747,6 +748,7 @@ var TrackSourceTypes;
     TrackSourceTypes["AudioMack"] = "audiomack";
     TrackSourceTypes["Bandcamp"] = "bandcamp";
     TrackSourceTypes["Deezer"] = "deezer";
+    TrackSourceTypes["Gaana"] = "gaana";
     TrackSourceTypes["Jiosaavn"] = "jiosaavn";
     TrackSourceTypes["Qobuz"] = "qobuz";
     TrackSourceTypes["SoundCloud"] = "soundcloud";
