@@ -91,10 +91,13 @@ class TrackUtils {
             const sourceNameMap = {
                 applemusic: "AppleMusic",
                 audiomack: "AudioMack",
+                amazonmusic: "AmazonMusic",
                 bandcamp: "Bandcamp",
                 deezer: "Deezer",
                 gaana: "Gaana",
                 jiosaavn: "Jiosaavn",
+                lastfm: "LastFM",
+                shazam: "Shazam",
                 soundcloud: "SoundCloud",
                 spotify: "Spotify",
                 tidal: "Tidal",
@@ -746,10 +749,13 @@ var TrackSourceTypes;
 (function (TrackSourceTypes) {
     TrackSourceTypes["AppleMusic"] = "applemusic";
     TrackSourceTypes["AudioMack"] = "audiomack";
+    TrackSourceTypes["AmazonMusic"] = "amazonmusic";
     TrackSourceTypes["Bandcamp"] = "bandcamp";
     TrackSourceTypes["Deezer"] = "deezer";
     TrackSourceTypes["Gaana"] = "gaana";
     TrackSourceTypes["Jiosaavn"] = "jiosaavn";
+    TrackSourceTypes["LastFM"] = "lastfm";
+    TrackSourceTypes["Shazam"] = "shazam";
     TrackSourceTypes["Qobuz"] = "qobuz";
     TrackSourceTypes["SoundCloud"] = "soundcloud";
     TrackSourceTypes["Spotify"] = "spotify";
