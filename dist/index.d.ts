@@ -1205,7 +1205,7 @@ declare enum UseNodeOptions {
 type UseNodeOption = keyof typeof UseNodeOptions;
 declare enum SearchPlatform {
     AppleMusic = "amsearch",
-    AmazonMusic = "azmsearch",
+    AmazonMusic = "amzsearch",
     AudioMack = "admsearch",
     Bandcamp = "bcsearch",
     Deezer = "dzsearch",
