@@ -158,6 +158,7 @@ class Manager extends events_1.EventEmitter {
             jiosaavn: "jssearch",
             applemusic: "amsearch",
             audiomack: "admsearch",
+            amazonmusic: "azmsearch",
             shazam: "szsearch",
             gaana: "gnsearch",
             qobuz: "qbsearch",
@@ -964,6 +965,7 @@ var UseNodeOptions;
 var SearchPlatform;
 (function (SearchPlatform) {
     SearchPlatform["AppleMusic"] = "amsearch";
+    SearchPlatform["AmazonMusic"] = "azmsearch";
     SearchPlatform["AudioMack"] = "admsearch";
     SearchPlatform["Bandcamp"] = "bcsearch";
     SearchPlatform["Deezer"] = "dzsearch";
