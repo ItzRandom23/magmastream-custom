@@ -453,34 +453,18 @@ class Node {
                 for (const player of this.manager.players.values()) {
                     if (player.node !== this) continue;
                     if (!player.voiceChannelId) continue;
-                    if (!player.voiceState?.event) continue;
-
-                    const { token, endpoint } = player.voiceState.event;
-                    const sessionId = player.voiceState.sessionId;
-
-                    if (!token || !endpoint || !sessionId) continue;
 
                     try {
-                        await this.rest.updatePlayer({
-                            guildId: player.guildId,
-                            data: {
-                                voice: {
-                                    token,
-                                    endpoint,
-                                    sessionId,
-                                    channelId: player.voiceChannelId,
-                                },
-                            },
-                        });
+                        await player.resyncState();
 
                         this.manager.emit(
                             Manager_1.ManagerEventTypes.Debug,
-                            `[DAVE] Re-sent voice state for guild ${player.guildId}`
+                            `[DAVE] Re-synced player state for guild ${player.guildId}`
                         );
                     } catch (err) {
                         this.manager.emit(
                             Manager_1.ManagerEventTypes.Debug,
-                            `[DAVE] Failed to re-sync voice for guild ${player.guildId}: ${err}`
+                            `[DAVE] Failed to re-sync player state for guild ${player.guildId}: ${err}`
                         );
                     }
                 }
@@ -864,6 +848,13 @@ class Node {
     socketClosed(player, payload) {
         this.manager.emit(Manager_1.ManagerEventTypes.SocketClosed, player, payload);
         this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Websocket closed for player: ${player.guildId} with payload: ${JSON.stringify(payload)}`);
+        if (!player.voiceChannelId || !player.queue.current)
+            return;
+        setTimeout(() => {
+            player.resyncState().catch((error) => {
+                this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Failed to re-sync player ${player.guildId} after websocket close: ${error}`);
+            });
+        }, 1500);
     }
     /**
      * Emitted when the segments for a track are loaded.

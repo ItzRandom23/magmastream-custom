@@ -56,7 +56,7 @@ class Manager extends events_1.EventEmitter {
                     identifier: "default",
                     host: "localhost",
                     enableSessionResumeOption: false,
-                    sessionTimeoutMs: 1000,
+                    sessionTimeoutMs: 3600000,
                 },
             ],
             playNextOnEnd: true,

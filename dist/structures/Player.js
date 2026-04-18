@@ -770,12 +770,46 @@ class Player {
         return null;
     }
     /**
+     * Re-syncs the current player state with Lavalink.
+     * This is used after node reconnects or Discord voice websocket interruptions.
+     * @returns {Promise<boolean>} Whether a sync payload was sent.
+     */
+    async resyncState() {
+        if (!this.node?.sessionId)
+            return false;
+        const sessionId = this.voiceState?.sessionId;
+        const token = this.voiceState?.event?.token;
+        const endpoint = this.voiceState?.event?.endpoint;
+        const voice = token && endpoint && sessionId && this.voiceChannelId
+            ? { token, endpoint, sessionId, channelId: this.voiceChannelId }
+            : undefined;
+        if (!voice && !this.queue.current)
+            return false;
+        await this.node.rest.updatePlayer({
+            guildId: this.guildId,
+            data: {
+                paused: this.paused,
+                volume: this.volume,
+                position: this.position,
+                encodedTrack: this.queue.current?.track ?? null,
+                ...(voice ? { voice } : {}),
+            },
+        });
+        if (this.filters) {
+            await this.filters.updateFilters().catch(() => { });
+        }
+        return true;
+    }
+    /**
      * Automatically moves the player to a usable node.
      * @returns {Promise<Player | void>} - The player instance or void if not moved.
      */
     async autoMoveNode() {
         // Get a usable node from the manager
         const node = this.manager.useableNode;
+        if (!node || node === this.node) {
+            return this;
+        }
         // Move the player to the usable node and return the result
         return await this.moveNode(node.options.identifier);
     }
@@ -793,22 +827,22 @@ class Player {
         }
         try {
             const playerPosition = this.position;
-            const sessionId = this.voiceState?.sessionId;
-            const token = this.voiceState?.event?.token;
-            const endpoint = this.voiceState?.event?.endpoint;
             const currentTrack = this.queue.current ? this.queue.current : null;
             await this.node.rest.destroyPlayer(this.guildId).catch(() => { });
             this.manager.players.delete(this.guildId);
             this.node = node;
             this.manager.players.set(this.guildId, this);
-            const voice = token && endpoint && sessionId && this.voiceChannelId
-                ? { token, endpoint, sessionId, channelId: this.voiceChannelId }
-                : undefined;
             await this.node.rest.updatePlayer({
                 guildId: this.guildId,
-                data: { paused: this.paused, volume: this.volume, position: playerPosition, encodedTrack: currentTrack?.track, ...(voice ? { voice } : {}) },
+                data: {
+                    paused: this.paused,
+                    volume: this.volume,
+                    position: playerPosition,
+                    encodedTrack: currentTrack?.track,
+                },
             });
-            await this.filters.updateFilters();
+            this.position = playerPosition;
+            await this.resyncState();
             return this;
         }
         catch (error) {

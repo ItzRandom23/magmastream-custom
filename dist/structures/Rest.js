@@ -117,10 +117,11 @@ class Rest {
                 console.error("No response from node:", error.message);
                 return null;
             }
-            if (error.response.data?.message === "Guild not found") {
+            const message = error.response.data?.message;
+            if (message === "Guild not found" || message === "Player not found") {
                 return [];
             }
-            else if (error.response.status === 404) {
+            else if (error.response.status === 404 && /\/v4\/sessions\/[^/]+(?:$|\/)/.test(endpoint) && message !== "Player not found") {
                 await this.node.destroy();
                 this.node.manager.createNode(this.node.options).connect();
             }

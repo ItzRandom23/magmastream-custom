@@ -347,7 +347,7 @@ class AutoPlayUtils {
                         }
                         track = res.tracks[0];
                     }
-                    const identifier = `sprec:${track.identifier}`;
+                    const identifier = `sprec:mix:track:${track.identifier}`;
                     const recommendedResult = (await this.manager.useableNode.rest.get(`/v4/loadtracks?identifier=${encodeURIComponent(identifier)}`));
                     if (!recommendedResult) {
                         return [];

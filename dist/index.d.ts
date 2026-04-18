@@ -1635,6 +1635,11 @@ declare class Player {
      */
     private getRepeatState;
     /**
+     * Re-syncs the current player state with Lavalink.
+     * This is used after node reconnects or Discord voice websocket interruptions.
+     */
+    resyncState(): Promise<boolean>;
+    /**
      * Automatically moves the player to a usable node.
      * @returns {Promise<Player | void>} - The player instance or void if not moved.
      */
