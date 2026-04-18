@@ -632,34 +632,29 @@ class Node {
      * @returns {Promise<boolean>} A promise that resolves to a boolean indicating if autoplay was successful.
      * @private
      */
-    async handleAutoplay(player, attempt = 0) {
+    async handleAutoplay(player, track, payload, attempt = 0) {
         // If autoplay is not enabled or all attempts have failed, early exit
-        if (!player.isAutoplay || attempt > player.autoplayTries || !player.queue.previous.length)
+        if (!player.isAutoplay || !player.autoplayEnabled || attempt > player.autoplayTries)
             return false;
-        const lastTrack = player.queue.previous[player.queue.previous.length - 1];
-        if (!lastTrack || typeof lastTrack !== "object") {
+        if (!track || typeof track !== "object") {
             console.warn("Autoplay error: lastTrack is null or invalid.");
             return false;
         }
-
         const botUser = player.get("Internal_BotUser");
-
         if (!botUser) {
             console.warn("Autoplay error: Internal_BotUser not found on player.");
             return false;
         }
-        lastTrack.requester = player.get("Internal_BotUser");
-        if (!lastTrack)
+        if (payload?.reason !== Utils_1.TrackEndReasonTypes.Finished)
             return false;
-        const tracks = await Utils_1.AutoPlayUtils.getRecommendedTracks(lastTrack);
-        if (tracks.length) {
-            player.queue.add(tracks[0]);
-            await player.play();
-            return true;
+        const shouldRefreshPool = !player.isAutoplayTrack(track) || !player.autoplayPool.length;
+        if (shouldRefreshPool) {
+            await player.refreshAutoplayPool(track, !!player.autoplayPool.length && !player.isAutoplayTrack(track));
         }
-        else {
-            return false;
+        if (player.autoplayPool.length) {
+            return await player.consumeNextAutoplayTrack();
         }
+        return false;
     }
     /**
      * Handles the scenario when a track fails to play or load.
@@ -674,6 +669,7 @@ class Node {
      * @private
      */
     async handleFailedTrack(player, track, payload) {
+        player.clearAutoplayPool();
         player.queue.current = player.queue.shift();
         if (!player.queue.current) {
             await this.queueEnd(player, track, payload);
@@ -773,6 +769,7 @@ class Node {
     async queueEnd(player, track, payload) {
         player.queue.current = null;
         if (!player.isAutoplay) {
+            player.clearAutoplayPool();
             player.playing = false;
             this.manager.emit(Manager_1.ManagerEventTypes.QueueEnd, player, track, payload);
             return;
@@ -780,12 +777,13 @@ class Node {
         let attempt = 1;
         let success = false;
         while (attempt <= player.autoplayTries) {
-            success = await this.handleAutoplay(player, attempt);
+            success = await this.handleAutoplay(player, track, payload, attempt);
             if (success)
                 return;
             attempt++;
         }
         // If all attempts fail, reset the player state and emit queueEnd
+        player.clearAutoplayPool();
         player.playing = false;
         this.manager.emit(Manager_1.ManagerEventTypes.QueueEnd, player, track, payload);
     }

@@ -58,6 +58,7 @@ class Queue extends Array {
      * @param [offset=null] The position to add the track(s) at. If not provided, the track(s) will be added at the end of the queue.
      */
     add(track, offset) {
+        const addedTracks = Array.isArray(track) ? [...track] : [track];
         // Get the track info as a string
         const trackInfo = Array.isArray(track) ? track.map((t) => JSON.stringify(t, null, 2)).join(", ") : JSON.stringify(track, null, 2);
         // Emit a debug message
@@ -104,14 +105,19 @@ class Queue extends Array {
             }
         }
         if (this.manager.players.has(this.guildId) && this.manager.players.get(this.guildId).isAutoplay) {
+            const player = this.manager.players.get(this.guildId);
+            const manualTracks = addedTracks.filter((addedTrack) => !player.isAutoplayTrack(addedTrack));
+            if (manualTracks.length) {
+                player.lastUserRequestedTrackId = manualTracks[manualTracks.length - 1].identifier ?? null;
+            }
             if (!Array.isArray(track)) {
-                const botUser = this.manager.players.get(this.guildId).get("Internal_BotUser");
-                if (botUser && botUser.id === track.requester.id) {
-                    this.manager.emit(Manager_1.ManagerEventTypes.PlayerStateUpdate, oldPlayer, this.manager.players.get(this.guildId), {
+                const botUser = player.get("Internal_BotUser");
+                if (botUser && botUser.id === track.requester?.id) {
+                    this.manager.emit(Manager_1.ManagerEventTypes.PlayerStateUpdate, oldPlayer, player, {
                         changeType: Manager_1.PlayerStateEventTypes.QueueChange,
                         details: {
                             changeType: "autoPlayAdd",
-                            tracks: Array.isArray(track) ? track : [track],
+                            tracks: addedTracks,
                         },
                     });
                     return;
@@ -123,7 +129,7 @@ class Queue extends Array {
             changeType: Manager_1.PlayerStateEventTypes.QueueChange,
             details: {
                 changeType: "add",
-                tracks: Array.isArray(track) ? track : [track],
+                tracks: addedTracks,
             },
         });
     }

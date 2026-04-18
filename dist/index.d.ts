@@ -1426,6 +1426,14 @@ declare class Player {
     isAutoplay: boolean;
     /** The number of times to try autoplay before emitting queueEnd. */
     autoplayTries: number;
+    /** Whether autoplay is enabled for pool-based recommendations. */
+    autoplayEnabled: boolean;
+    /** Remaining autoplay candidates for this player. */
+    autoplayPool: Track[];
+    /** The last track identifier used to build the autoplay pool. */
+    lastAutoplaySeedTrackId: string | null;
+    /** The last user-requested track identifier seen by the player. */
+    lastUserRequestedTrackId: string | null;
     private static _manager;
     private readonly data;
     private dynamicLoopInterval;
@@ -1540,6 +1548,14 @@ declare class Player {
      * @returns {Promise<Track[]>} - Array of recommended tracks.
      */
     getRecommendedTracks(track: Track): Promise<Track[]>;
+    clearAutoplayPool(): this;
+    normalizeTitle(title: string): string;
+    isAutoplayTrack(track: Track): boolean;
+    createAutoplayTrack(track: Track): Track | null;
+    filterAutoplayTracks(tracks: Track[], seedTrack?: Track): Track[];
+    mergeAndShuffleAutoplayPool(oldPool: Track[], newPool: Track[], seedTrack?: Track): Track[];
+    refreshAutoplayPool(seedTrack: Track, mergeExisting?: boolean): Promise<Track[]>;
+    consumeNextAutoplayTrack(): Promise<boolean>;
     /**
      * Sets the volume of the player.
      * @param {number} volume - The new volume. Must be between 0 and 1000.

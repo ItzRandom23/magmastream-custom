@@ -51,6 +51,14 @@ class Player {
     isAutoplay = false;
     /** The number of times to try autoplay before emitting queueEnd. */
     autoplayTries = 3;
+    /** Whether autoplay is enabled for pool-based recommendations. */
+    autoplayEnabled = false;
+    /** Remaining autoplay candidates for this player. */
+    autoplayPool = [];
+    /** The last track identifier used to build the autoplay pool. */
+    lastAutoplaySeedTrackId = null;
+    /** The last user-requested track identifier seen by the player. */
+    lastUserRequestedTrackId = null;
     static _manager;
     data = {};
     dynamicLoopInterval = null;
@@ -238,6 +246,8 @@ class Player {
         if (this.isAutoplay) {
             this.isAutoplay = false;
         }
+        this.autoplayEnabled = false;
+        this.clearAutoplayPool();
 
         // Clear filters, queue, data
         await this.node.rest.destroyPlayer(this.guildId).catch(() => { });
@@ -343,6 +353,9 @@ class Player {
     async play(optionsOrTrack, playOptions) {
         if (typeof optionsOrTrack !== "undefined" && Utils_1.TrackUtils.validate(optionsOrTrack)) {
             this.queue.current = optionsOrTrack;
+            if (!this.isAutoplayTrack(optionsOrTrack)) {
+                this.lastUserRequestedTrackId = optionsOrTrack.identifier ?? null;
+            }
         }
         if (!this.queue.current)
             throw new RangeError("No current track.");
@@ -388,11 +401,14 @@ class Player {
             }
             this.autoplayTries = tries && typeof tries === "number" && tries > 0 ? tries : 3; // Default to 3 if invalid
             this.isAutoplay = true;
+            this.autoplayEnabled = true;
             this.set("Internal_BotUser", botUser);
         }
         else {
             this.isAutoplay = false;
+            this.autoplayEnabled = false;
             this.autoplayTries = null;
+            this.clearAutoplayPool();
             this.set("Internal_BotUser", null);
         }
         this.manager.emit(Manager_1.ManagerEventTypes.PlayerStateUpdate, oldPlayer, this, {
@@ -412,6 +428,85 @@ class Player {
     async getRecommendedTracks(track) {
         const tracks = await Utils_1.AutoPlayUtils.getRecommendedTracks(track);
         return tracks;
+    }
+    clearAutoplayPool() {
+        this.autoplayPool = [];
+        this.lastAutoplaySeedTrackId = null;
+        return this;
+    }
+    normalizeTitle(title) {
+        if (!title)
+            return "";
+        return String(title)
+            .toLowerCase()
+            .replace(/\[[^\]]*\]|\([^\)]*\)/g, " ")
+            .replace(/\s-\s.*$/, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+    isAutoplayTrack(track) {
+        const botUser = this.get("Internal_BotUser");
+        return !!(track && botUser && track.requester?.id && botUser.id === track.requester.id);
+    }
+    createAutoplayTrack(track) {
+        const botUser = this.get("Internal_BotUser");
+        if (!track || !botUser)
+            return null;
+        return {
+            ...track,
+            requester: botUser,
+        };
+    }
+    filterAutoplayTracks(tracks, seedTrack) {
+        const seedIdentifier = seedTrack?.identifier ?? null;
+        const seedTitle = this.normalizeTitle(seedTrack?.title);
+        const seenIdentifiers = new Set(seedIdentifier ? [seedIdentifier] : []);
+        const seenTitles = new Set(seedTitle ? [seedTitle] : []);
+        const filtered = [];
+        for (const originalTrack of tracks) {
+            const track = this.createAutoplayTrack(originalTrack);
+            if (!track?.identifier)
+                continue;
+            const normalizedTitle = this.normalizeTitle(track.title);
+            if (seedIdentifier && track.identifier === seedIdentifier)
+                continue;
+            if (seedTitle && normalizedTitle && normalizedTitle === seedTitle)
+                continue;
+            if (seenIdentifiers.has(track.identifier))
+                continue;
+            if (normalizedTitle && seenTitles.has(normalizedTitle))
+                continue;
+            seenIdentifiers.add(track.identifier);
+            if (normalizedTitle) {
+                seenTitles.add(normalizedTitle);
+            }
+            filtered.push(track);
+        }
+        return filtered;
+    }
+    mergeAndShuffleAutoplayPool(oldPool, newPool, seedTrack) {
+        return _.shuffle(this.filterAutoplayTracks([...(oldPool ?? []), ...(newPool ?? [])], seedTrack));
+    }
+    async refreshAutoplayPool(seedTrack, mergeExisting = false) {
+        const preparedSeedTrack = this.createAutoplayTrack(seedTrack);
+        if (!preparedSeedTrack)
+            return [];
+        const freshTracks = this.filterAutoplayTracks(await this.getRecommendedTracks(preparedSeedTrack), preparedSeedTrack);
+        this.autoplayPool = mergeExisting
+            ? this.mergeAndShuffleAutoplayPool(this.autoplayPool, freshTracks, preparedSeedTrack)
+            : freshTracks;
+        this.lastAutoplaySeedTrackId = preparedSeedTrack.identifier ?? null;
+        return this.autoplayPool;
+    }
+    async consumeNextAutoplayTrack() {
+        if (!this.autoplayEnabled || !this.autoplayPool.length)
+            return false;
+        const nextTrack = this.autoplayPool.shift();
+        if (!nextTrack)
+            return false;
+        this.queue.add(nextTrack);
+        await this.play();
+        return true;
     }
     /**
      * Sets the volume of the player.
