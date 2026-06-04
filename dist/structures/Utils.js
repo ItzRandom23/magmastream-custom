@@ -21,6 +21,9 @@ class TrackUtils {
         // Set the manager instance for TrackUtils.
         this.manager = manager;
     }
+    static axiosOptions() {
+        return { timeout: this.manager?.useableNode?.options?.apiRequestTimeoutMs ?? 30000 };
+    }
     /**
      * Sets the partial properties for the Track class. If a Track has some of its properties removed by the partial,
      * it will be considered a partial Track.
@@ -198,7 +201,7 @@ class AutoPlayUtils {
             if (!title) {
                 // No title provided, search for the artist's top tracks
                 const noTitleUrl = `https://ws.audioscrobbler.com/2.0/?method=artist.getTopTracks&artist=${artist}&autocorrect=1&api_key=${apiKey}&format=json`;
-                const response = await axios_1.default.get(noTitleUrl);
+                const response = await axios_1.default.get(noTitleUrl, this.axiosOptions());
                 if (response.data.error || !response.data.toptracks?.track?.length) {
                     return [];
                 }
@@ -216,7 +219,7 @@ class AutoPlayUtils {
             if (!artist) {
                 // No artist provided, search for the track title
                 const noArtistUrl = `https://ws.audioscrobbler.com/2.0/?method=track.search&track=${title}&api_key=${apiKey}&format=json`;
-                const response = await axios_1.default.get(noArtistUrl);
+                const response = await axios_1.default.get(noArtistUrl, this.axiosOptions());
                 artist = response.data.results.trackmatches?.track?.[0]?.artist;
                 if (!artist) {
                     return [];
@@ -227,7 +230,7 @@ class AutoPlayUtils {
         const url = `https://ws.audioscrobbler.com/2.0/?method=track.getSimilar&artist=${artist}&track=${title}&limit=10&autocorrect=1&api_key=${apiKey}&format=json`;
         let response;
         try {
-            response = await axios_1.default.get(url);
+            response = await axios_1.default.get(url, this.axiosOptions());
         }
         catch (error) {
             console.error("[AutoPlay] Error fetching similar tracks from Last.fm:", error);
@@ -236,7 +239,7 @@ class AutoPlayUtils {
         if (response.data.error || !response.data.similartracks?.track?.length) {
             // Retry the request if the first attempt fails
             const retryUrl = `https://ws.audioscrobbler.com/2.0/?method=artist.getTopTracks&artist=${artist}&autocorrect=1&api_key=${apiKey}&format=json`;
-            const retryResponse = await axios_1.default.get(retryUrl);
+            const retryResponse = await axios_1.default.get(retryUrl, this.axiosOptions());
             if (retryResponse.data.error || !retryResponse.data.toptracks?.track?.length) {
                 return [];
             }
@@ -516,7 +519,7 @@ class AutoPlayUtils {
                         track = res.tracks[0];
                     }
                     try {
-                        const recommendedRes = await axios_1.default.get(`${track.uri}/recommended`).catch((err) => {
+                        const recommendedRes = await axios_1.default.get(`${track.uri}/recommended`, this.axiosOptions()).catch((err) => {
                             console.error(`[AutoPlay] Failed to fetch SoundCloud recommendations. Status: ${err.response?.status || "Unknown"}`, err.message);
                             return null;
                         });

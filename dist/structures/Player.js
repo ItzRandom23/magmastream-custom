@@ -272,6 +272,7 @@ class Player {
         let deleted = false;
         if (this.manager.players.has(this.guildId)) {
             deleted = this.manager.players.delete(this.guildId);
+            this.manager.voiceUpdateDedupCache?.delete(this.guildId);
             if (!deleted) {
                 console.warn(
                     `[Player] Deletion failed despite existence in map for guild: ${this.guildId}`
@@ -655,6 +656,10 @@ class Player {
             this.trackRepeat = false;
             this.queueRepeat = false;
             this.dynamicRepeat = true;
+            if (this.dynamicLoopInterval) {
+                clearInterval(this.dynamicLoopInterval);
+                this.dynamicLoopInterval = null;
+            }
             // Set an interval to shuffle the queue periodically
             this.dynamicLoopInterval = setInterval(() => {
                 if (!this.dynamicRepeat)
@@ -672,6 +677,7 @@ class Player {
         else {
             // Clear the interval and reset repeat states
             clearInterval(this.dynamicLoopInterval);
+            this.dynamicLoopInterval = null;
             this.dynamicRepeatIntervalMs = null;
             this.trackRepeat = false;
             this.queueRepeat = false;

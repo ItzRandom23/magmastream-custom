@@ -43,6 +43,8 @@ class Node {
     info = null;
     static _manager;
     reconnectTimeout;
+    reconnecting = false;
+    destroyed = false;
     reconnectAttempts = 1;
     /**
      * Creates an instance of Node.
@@ -57,15 +59,24 @@ class Node {
         if (this.manager.nodes.has(options.identifier || options.host)) {
             return this.manager.nodes.get(options.identifier || options.host);
         }
-        (0, nodeCheck_1.default)(options);
+        const normalizedOptions = {
+            ...options,
+            useSSL: options.useSSL ?? options.secure,
+            maxRetryAttempts: options.maxRetryAttempts ?? options.retryAmount,
+            retryDelayMs: options.retryDelayMs ?? options.retrydelay ?? options.retryDelay,
+            enableSessionResumeOption: options.enableSessionResumeOption ?? options.resumeStatus,
+            sessionTimeoutMs: options.sessionTimeoutMs ?? options.resumeTimeout,
+        };
+        (0, nodeCheck_1.default)(normalizedOptions);
         this.options = {
             port: 2333,
             password: "youshallnotpass",
             useSSL: false,
             maxRetryAttempts: 30,
             retryDelayMs: 60000,
+            apiRequestTimeoutMs: 30000,
             nodePriority: 0,
-            ...options,
+            ...normalizedOptions,
         };
         if (this.options.useSSL) {
             this.options.port = 443;
@@ -143,7 +154,14 @@ class Node {
             // Read the content of the sessionIds.json file as a string
             const sessionIdsData = fs_1.default.readFileSync(sessionIdsFilePath, "utf-8");
             // Parse the JSON string into an object and convert it into a Map
-            sessionIdsMap = new Map(Object.entries(JSON.parse(sessionIdsData)));
+            try {
+                sessionIdsMap = new Map(Object.entries(JSON.parse(sessionIdsData)));
+            }
+            catch (error) {
+                this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Failed to parse sessionIds file, resetting cache: ${error}`);
+                sessionIdsMap = new Map();
+                fs_1.default.writeFileSync(sessionIdsFilePath, JSON.stringify({}), "utf-8");
+            }
             // Check if the session IDs Map contains the session ID for this node
             const compositeKey = `${this.options.identifier}::${this.manager.options.clusterId}`;
             if (sessionIdsMap.has(compositeKey)) {
@@ -183,8 +201,15 @@ class Node {
      * stored in the sessionIds.json file if it exists.
      */
     connect() {
-        if (this.connected)
+        if (this.destroyed || this.connected || (this.socket && this.socket.readyState === ws_1.default.CONNECTING))
             return;
+        if (this.socket) {
+            this.socket.removeAllListeners();
+            if (this.socket.readyState !== ws_1.default.CLOSED) {
+                this.socket.close(1000, "reconnect");
+            }
+            this.socket = null;
+        }
         const headers = {
             Authorization: this.options.password,
             "User-Id": this.manager.options.clientId,
@@ -227,7 +252,17 @@ class Node {
      * @returns {Promise<void>} A promise that resolves when the node and its resources have been destroyed.
      */
     async destroy() {
+        this.destroyed = true;
+        this.reconnecting = false;
+        this.reconnectAttempts = 1;
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = undefined;
+        }
         if (!this.connected) {
+            this.socket?.removeAllListeners();
+            this.socket?.close(1000, "destroy");
+            this.socket = null;
             this.manager.nodes.delete(this.options.identifier);
             return;
         }
@@ -251,9 +286,7 @@ class Node {
         this.socket.close(1000, "destroy");
         // Remove all event listeners on the WebSocket
         this.socket.removeAllListeners();
-        // Clear the reconnect timeout
-        this.reconnectAttempts = 1;
-        clearTimeout(this.reconnectTimeout);
+        this.socket = null;
         // Emit a "nodeDestroy" event with the node as the argument
         this.manager.emit(Manager_1.ManagerEventTypes.NodeDestroy, this);
         // Remove the node from manager storage.
@@ -276,6 +309,9 @@ class Node {
      * @emits {nodeDestroy} - Emits a nodeDestroy event if the maximum number of retry attempts is reached.
      */
     async reconnect() {
+        if (this.destroyed || this.connected || this.reconnecting)
+            return;
+        this.reconnecting = true;
         // Collect debug information regarding the current state of the node
         const debugInfo = {
             identifier: this.options.identifier,
@@ -288,6 +324,10 @@ class Node {
         this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Reconnecting node: ${JSON.stringify(debugInfo)}`);
         // Schedule the reconnection attempt after the specified retry delay
         this.reconnectTimeout = setTimeout(async () => {
+            this.reconnectTimeout = undefined;
+            this.reconnecting = false;
+            if (this.destroyed || this.connected)
+                return;
             // Check if the maximum number of retry attempts has been reached
             if (this.reconnectAttempts >= this.options.maxRetryAttempts) {
                 // Emit an error event and destroy the node if retries are exhausted
@@ -315,8 +355,12 @@ class Node {
      */
     open() {
         // Clear any existing reconnect timeouts
-        if (this.reconnectTimeout)
+        if (this.reconnectTimeout) {
             clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = undefined;
+        }
+        this.reconnecting = false;
+        this.reconnectAttempts = 1;
         // Collect debug information regarding the current state of the node
         const debugInfo = {
             identifier: this.options.identifier,
@@ -396,7 +440,15 @@ class Node {
             d = Buffer.concat(d);
         else if (d instanceof ArrayBuffer)
             d = Buffer.from(d);
-        const payload = JSON.parse(d.toString());
+        let payload;
+        try {
+            payload = JSON.parse(d.toString());
+        }
+        catch (error) {
+            this.manager.emit(Manager_1.ManagerEventTypes.NodeError, this, error);
+            this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Failed to parse websocket message: ${error}`);
+            return;
+        }
         if (!payload.op)
             return;
         this.manager.emit(Manager_1.ManagerEventTypes.NodeRaw, payload);

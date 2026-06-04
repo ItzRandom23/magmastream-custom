@@ -479,16 +479,28 @@ interface NodeOptions {
     password?: string;
     /** Whether the host uses SSL. */
     useSSL?: boolean;
+    /** Alias for useSSL. */
+    secure?: boolean;
     /** The identifier for the node. */
     identifier?: string;
     /** The maxRetryAttempts for the node. */
     maxRetryAttempts?: number;
+    /** Alias for maxRetryAttempts. */
+    retryAmount?: number;
     /** The retryDelayMs for the node. */
     retryDelayMs?: number;
+    /** Alias for retryDelayMs. */
+    retrydelay?: number;
+    /** Alias for retryDelayMs. */
+    retryDelay?: number;
     /** Whether to resume the previous session. */
     enableSessionResumeOption?: boolean;
+    /** Alias for enableSessionResumeOption. */
+    resumeStatus?: boolean;
     /** The time the lavalink server will wait before it removes the player. */
     sessionTimeoutMs?: number;
+    /** Alias for sessionTimeoutMs. */
+    resumeTimeout?: number;
     /** The timeout used for api calls. */
     apiRequestTimeoutMs?: number;
     /** Priority of the node. */
@@ -644,6 +656,7 @@ declare class Queue extends Array<Track> {
 declare abstract class TrackUtils {
     static trackPartial: TrackPartial[] | null;
     private static manager;
+    private static axiosOptions;
     /**
      * Initializes the TrackUtils class with the given manager.
      * @param manager The manager instance to use.

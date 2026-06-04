@@ -14,6 +14,8 @@ const { fetch } = require("undici");
  * The main hub for interacting with Lavalink and using Magmastream,
  */
 class Manager extends events_1.EventEmitter {
+    static activeManagers = new Set();
+    static signalHandlersRegistered = false;
     /** The map of players. */
     players = new collection_1.Collection();
     /** The map of nodes. */
@@ -72,33 +74,37 @@ class Manager extends events_1.EventEmitter {
             for (const nodeOptions of this.options.nodes)
                 new (Utils_1.Structure.get("Node"))(nodeOptions);
         }
-        process.on("SIGINT", async () => {
-            console.warn("\x1b[33mSIGINT received! Graceful shutdown initiated...\x1b[0m");
-            try {
-                await this.handleShutdown();
-                console.warn("\x1b[32mShutdown complete. Waiting for Node.js event loop to empty...\x1b[0m");
-                // Prevent forced exit by Windows
-                setTimeout(() => {
+        Manager.activeManagers.add(this);
+        if (!Manager.signalHandlersRegistered) {
+            Manager.signalHandlersRegistered = true;
+            process.once("SIGINT", async () => {
+                console.warn("\x1b[33mSIGINT received! Graceful shutdown initiated...\x1b[0m");
+                try {
+                    await Promise.allSettled(Array.from(Manager.activeManagers, (manager) => manager.handleShutdown()));
+                    console.warn("\x1b[32mShutdown complete. Waiting for Node.js event loop to empty...\x1b[0m");
+                    // Prevent forced exit by Windows
+                    setTimeout(() => {
+                        process.exit(0);
+                    }, 2000);
+                }
+                catch (error) {
+                    console.error("Error during shutdown:", error);
+                    process.exit(1);
+                }
+            });
+            process.once("SIGTERM", async () => {
+                console.warn("\x1b[33mSIGTERM received! Graceful shutdown initiated...\x1b[0m");
+                try {
+                    await Promise.allSettled(Array.from(Manager.activeManagers, (manager) => manager.handleShutdown()));
+                    console.warn("\x1b[32mShutdown complete. Exiting now...\x1b[0m");
                     process.exit(0);
-                }, 2000);
-            }
-            catch (error) {
-                console.error("Error during shutdown:", error);
-                process.exit(1);
-            }
-        });
-        process.on("SIGTERM", async () => {
-            console.warn("\x1b[33mSIGTERM received! Graceful shutdown initiated...\x1b[0m");
-            try {
-                await this.handleShutdown();
-                console.warn("\x1b[32mShutdown complete. Exiting now...\x1b[0m");
-                process.exit(0);
-            }
-            catch (error) {
-                console.error("Error during SIGTERM shutdown:", error);
-                process.exit(1);
-            }
-        });
+                }
+                catch (error) {
+                    console.error("Error during SIGTERM shutdown:", error);
+                    process.exit(1);
+                }
+            });
+        }
     }
     /**
      * Initiates the Manager.
@@ -401,6 +407,10 @@ class Manager extends events_1.EventEmitter {
         if (!node)
             throw new Error(`Could not find node: ${nodeId}`);
         const info = (await node.rest.getAllPlayers());
+        if (!Array.isArray(info)) {
+            this.emit(ManagerEventTypes.Debug, `[MANAGER] Could not load Lavalink players for node ${nodeId}; skipping saved player restore.`);
+            return;
+        }
         const playerStatesDir = path_1.default.join(process.cwd(), "magmastream", "dist", "sessionData", "players");
         try {
             // Check if the directory exists, and create it if it doesn't
@@ -423,6 +433,7 @@ class Manager extends events_1.EventEmitter {
                         const lavaPlayer = info.find((player) => player.guildId === state.guildId);
                         if (!lavaPlayer) {
                             await this.destroy(state.guildId);
+                            continue;
                         }
                         const playerOptions = {
                             guildId: state.options.guildId,
@@ -434,10 +445,12 @@ class Manager extends events_1.EventEmitter {
                         };
                         this.emit(ManagerEventTypes.Debug, `[MANAGER] Recreating player: ${state.guildId} from saved file: ${JSON.stringify(state.options)}`);
                         const player = this.create(playerOptions);
-                        await player.node.rest.updatePlayer({
-                            guildId: state.options.guildId,
-                            data: { voice: { token: state.voiceState.event.token, endpoint: state.voiceState.event.endpoint, sessionId: state.voiceState.sessionId, channelId: state.options.voiceChannelId } },
-                        });
+                        if (state.voiceState?.event?.token && state.voiceState?.event?.endpoint && state.voiceState?.sessionId && state.options.voiceChannelId) {
+                            await player.node.rest.updatePlayer({
+                                guildId: state.options.guildId,
+                                data: { voice: { token: state.voiceState.event.token, endpoint: state.voiceState.event.endpoint, sessionId: state.voiceState.sessionId, channelId: state.options.voiceChannelId } },
+                            });
+                        }
                         player.connect();
                         const tracks = [];
                         const currentTrack = state.queue.current;
@@ -492,9 +505,12 @@ class Manager extends events_1.EventEmitter {
                         if (state.queueRepeat)
                             player.setQueueRepeat(true);
                         if (state.dynamicRepeat) {
-                            player.setDynamicRepeat(state.dynamicRepeat, state.dynamicLoopInterval._idleTimeout);
+                            const dynamicRepeatInterval = state.dynamicRepeatIntervalMs ?? state.dynamicLoopInterval?._idleTimeout;
+                            if (dynamicRepeatInterval && player.queue.size > 1) {
+                                player.setDynamicRepeat(true, dynamicRepeatInterval);
+                            }
                         }
-                        if (state.isAutoplay) {
+                        if (state.isAutoplay && state.data?.clientUser) {
                             Object.setPrototypeOf(state.data.clientUser, { constructor: { name: "User" } });
                             player.setAutoplay(true, state.data.clientUser, state.autoplayTries);
                         }
@@ -503,38 +519,40 @@ class Manager extends events_1.EventEmitter {
                                 player.set(name, value);
                             }
                         }
-                        const filterActions = {
-                            bassboost: () => player.filters.bassBoost(state.filters.bassBoostlevel),
-                            distort: (enabled) => player.filters.distort(enabled),
-                            setDistortion: () => player.filters.setDistortion(state.filters.distortion),
-                            eightD: (enabled) => player.filters.eightD(enabled),
-                            setKaraoke: () => player.filters.setKaraoke(state.filters.karaoke),
-                            nightcore: (enabled) => player.filters.nightcore(enabled),
-                            slowmo: (enabled) => player.filters.slowmo(enabled),
-                            soft: (enabled) => player.filters.soft(enabled),
-                            trebleBass: (enabled) => player.filters.trebleBass(enabled),
-                            setTimescale: () => player.filters.setTimescale(state.filters.timescale),
-                            tv: (enabled) => player.filters.tv(enabled),
-                            vibrato: () => player.filters.setVibrato(state.filters.vibrato),
-                            vaporwave: (enabled) => player.filters.vaporwave(enabled),
-                            pop: (enabled) => player.filters.pop(enabled),
-                            party: (enabled) => player.filters.party(enabled),
-                            earrape: (enabled) => player.filters.earrape(enabled),
-                            electronic: (enabled) => player.filters.electronic(enabled),
-                            radio: (enabled) => player.filters.radio(enabled),
-                            setRotation: () => player.filters.setRotation(state.filters.rotation),
-                            tremolo: (enabled) => player.filters.tremolo(enabled),
-                            china: (enabled) => player.filters.china(enabled),
-                            chipmunk: (enabled) => player.filters.chipmunk(enabled),
-                            darthvader: (enabled) => player.filters.darthvader(enabled),
-                            daycore: (enabled) => player.filters.daycore(enabled),
-                            doubletime: (enabled) => player.filters.doubletime(enabled),
-                            demon: (enabled) => player.filters.demon(enabled),
-                        };
-                        // Iterate through filterStatus and apply the enabled filters
-                        for (const [filter, isEnabled] of Object.entries(state.filters.filterStatus)) {
-                            if (isEnabled && filterActions[filter]) {
-                                filterActions[filter](true);
+                        if (state.filters?.filterStatus && player.filters) {
+                            const filterActions = {
+                                bassboost: () => player.filters.bassBoost(state.filters.bassBoostlevel),
+                                distort: (enabled) => player.filters.distort(enabled),
+                                setDistortion: () => player.filters.setDistortion(state.filters.distortion),
+                                eightD: (enabled) => player.filters.eightD(enabled),
+                                setKaraoke: () => player.filters.setKaraoke(state.filters.karaoke),
+                                nightcore: (enabled) => player.filters.nightcore(enabled),
+                                slowmo: (enabled) => player.filters.slowmo(enabled),
+                                soft: (enabled) => player.filters.soft(enabled),
+                                trebleBass: (enabled) => player.filters.trebleBass(enabled),
+                                setTimescale: () => player.filters.setTimescale(state.filters.timescale),
+                                tv: (enabled) => player.filters.tv(enabled),
+                                vibrato: () => player.filters.setVibrato(state.filters.vibrato),
+                                vaporwave: (enabled) => player.filters.vaporwave(enabled),
+                                pop: (enabled) => player.filters.pop(enabled),
+                                party: (enabled) => player.filters.party(enabled),
+                                earrape: (enabled) => player.filters.earrape(enabled),
+                                electronic: (enabled) => player.filters.electronic(enabled),
+                                radio: (enabled) => player.filters.radio(enabled),
+                                setRotation: () => player.filters.setRotation(state.filters.rotation),
+                                tremolo: (enabled) => player.filters.tremolo(enabled),
+                                china: (enabled) => player.filters.china(enabled),
+                                chipmunk: (enabled) => player.filters.chipmunk(enabled),
+                                darthvader: (enabled) => player.filters.darthvader(enabled),
+                                daycore: (enabled) => player.filters.daycore(enabled),
+                                doubletime: (enabled) => player.filters.doubletime(enabled),
+                                demon: (enabled) => player.filters.demon(enabled),
+                            };
+                            // Iterate through filterStatus and apply the enabled filters
+                            for (const [filter, isEnabled] of Object.entries(state.filters.filterStatus)) {
+                                if (isEnabled && filterActions[filter]) {
+                                    await filterActions[filter](true);
+                                }
                             }
                         }
                     }
@@ -609,6 +627,9 @@ class Manager extends events_1.EventEmitter {
         catch (error) {
             console.error("Unexpected error during shutdown:", error);
             process.exit(1);
+        }
+        finally {
+            Manager.activeManagers.delete(this);
         }
     }
     /**
@@ -753,6 +774,11 @@ class Manager extends events_1.EventEmitter {
     }
     shouldSendVoiceUpdate(guildId, payload) {
         const now = Date.now();
+        for (const [cachedGuildId, cacheEntry] of this.voiceUpdateDedupCache) {
+            if ((now - cacheEntry.timestamp) > this.voiceUpdateDedupWindowMs) {
+                this.voiceUpdateDedupCache.delete(cachedGuildId);
+            }
+        }
         const signature = `${payload.token}|${payload.endpoint}|${payload.sessionId}|${payload.channelId}`;
         const previous = this.voiceUpdateDedupCache.get(guildId);
         if (previous && previous.signature === signature && (now - previous.timestamp) <= this.voiceUpdateDedupWindowMs) {
@@ -854,6 +880,7 @@ class Manager extends events_1.EventEmitter {
                 if (!activeGuildIds.has(guildId)) {
                     const filePath = path_1.default.join(playerStatesDir, file);
                     await promises_1.default.unlink(filePath); // Delete the file asynchronously
+                    this.voiceUpdateDedupCache.delete(guildId);
                     this.emit(ManagerEventTypes.Debug, `[MANAGER] Deleting inactive player: ${guildId}`);
                 }
             }

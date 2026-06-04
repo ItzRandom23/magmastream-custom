@@ -106,6 +106,7 @@ class Rest {
                 "Content-Type": "application/json",
                 Authorization: this.password,
             },
+            timeout: this.node.options.apiRequestTimeoutMs,
             data: body,
         };
         try {
@@ -122,8 +123,11 @@ class Rest {
                 return [];
             }
             else if (error.response.status === 404 && /\/v4\/sessions\/[^/]+(?:$|\/)/.test(endpoint) && message !== "Player not found") {
-                await this.node.destroy();
-                this.node.manager.createNode(this.node.options).connect();
+                this.node.sessionId = null;
+                this.node.socket?.removeAllListeners();
+                this.node.socket?.close(1000, "session-invalid");
+                this.node.socket = null;
+                await this.node.reconnect();
             }
             return null;
         }
