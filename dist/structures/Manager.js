@@ -20,6 +20,8 @@ class Manager extends events_1.EventEmitter {
     players = new collection_1.Collection();
     /** The map of nodes. */
     nodes = new collection_1.Collection();
+    /** Temporary reservations used while moving players after a node failure. */
+    failoverReservations = new Map();
     /** The options that were set. */
     options;
     initiated = false;
@@ -598,6 +600,40 @@ class Manager extends events_1.EventEmitter {
             : this.options.useNode === UseNodeOptions.LeastLoad
                 ? this.leastLoadNode.first()
                 : this.leastPlayersNode.first();
+    }
+    /**
+     * Selects a failover node while accounting for migrations that have not
+     * appeared in Lavalink's statistics yet. This prevents a disconnect storm
+     * from assigning every player to the same node.
+     */
+    getFailoverNode(excludedNode) {
+        const candidates = this.nodes
+            .filter((node) => node.connected && node !== excludedNode)
+            .sort((a, b) => {
+            const aReservations = this.failoverReservations.get(a.options.identifier) ?? 0;
+            const bReservations = this.failoverReservations.get(b.options.identifier) ?? 0;
+            const aPlayers = (a.stats?.players ?? 0) + aReservations;
+            const bPlayers = (b.stats?.players ?? 0) + bReservations;
+            if (aPlayers !== bPlayers)
+                return aPlayers - bPlayers;
+            const aload = a.stats?.cpu?.cores ? (a.stats.cpu.lavalinkLoad / a.stats.cpu.cores) : 0;
+            const bload = b.stats?.cpu?.cores ? (b.stats.cpu.lavalinkLoad / b.stats.cpu.cores) : 0;
+            return aload - bload;
+        });
+        const node = candidates.first();
+        if (node) {
+            const id = node.options.identifier;
+            this.failoverReservations.set(id, (this.failoverReservations.get(id) ?? 0) + 1);
+        }
+        return node;
+    }
+    releaseFailoverReservation(node) {
+        const id = node.options.identifier;
+        const count = (this.failoverReservations.get(id) ?? 1) - 1;
+        if (count > 0)
+            this.failoverReservations.set(id, count);
+        else
+            this.failoverReservations.delete(id);
     }
     /**
      * Handles the shutdown of the process by saving all active players' states and optionally cleaning up inactive players.

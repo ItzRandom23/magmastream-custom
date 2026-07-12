@@ -395,10 +395,27 @@ class Node {
         // Emit a debug event indicating the node is disconnected
         this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Disconnected node: ${JSON.stringify(debugInfo)}`);
         // Try moving all players connected to that node to a useable one
-        if (this.manager.useableNode) {
+        if (this.manager.nodes.some((node) => node.connected && node !== this)) {
             const players = this.manager.players.filter((p) => p.node.options.identifier == this.options.identifier);
             if (players.size) {
-                await Promise.all(Array.from(players.values(), (player) => player.autoMoveNode()));
+                // Move one player at a time. The reservation-aware selector
+                // distributes migrations and avoids a request burst at the
+                // external audio source.
+                for (const player of players.values()) {
+                    const target = this.manager.getFailoverNode(this);
+                    if (!target)
+                        break;
+                    try {
+                        await player.moveNode(target.options.identifier);
+                    }
+                    catch (error) {
+                        this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Failed to move player ${player.guildId}: ${error}`);
+                    }
+                    finally {
+                        this.manager.releaseFailoverReservation(target);
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, 250));
+                }
             }
         }
         // If the close event was not initiated by the user, attempt to reconnect
