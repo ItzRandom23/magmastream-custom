@@ -166,7 +166,7 @@ class AutoPlayUtils {
             throw new Error("No available nodes.");
         }
         const apiKey = this.manager.options.lastFmApiKey;
-        const enabledSources = node.info.sourceManagers;
+        const enabledSources = node.info?.sourceManagers ?? [];
         const autoPlaySearchPlatforms = this.manager.options.autoPlaySearchPlatforms ?? [
             Manager_1.AutoPlayPlatform.Spotify,
             Manager_1.AutoPlayPlatform.Deezer,
@@ -175,16 +175,24 @@ class AutoPlayUtils {
         // Iterate over autoplay platforms in order of priority
         for (const platform of autoPlaySearchPlatforms) {
             if (enabledSources.includes(platform)) {
-                const recommendedTracks = await this.getRecommendedTracksFromSource(track, platform);
-                // If tracks are found, return them immediately
-                if (recommendedTracks.length > 0) {
-                    return recommendedTracks;
+                try {
+                    const recommendedTracks = await this.getRecommendedTracksFromSource(track, platform);
+                    if (recommendedTracks.length > 0)
+                        return recommendedTracks;
+                }
+                catch (error) {
+                    this.manager.log?.("warn", `[AUTOPLAY] ${platform} recommendation failed: ${error.message}`);
                 }
             }
         }
         // Check if Last.fm API is available
         if (apiKey) {
-            return await this.getRecommendedTracksFromLastFm(track, apiKey);
+            try {
+                return await this.getRecommendedTracksFromLastFm(track, apiKey);
+            }
+            catch (error) {
+                this.manager.log?.("warn", `[AUTOPLAY] Last.fm fallback failed: ${error.message}`);
+            }
         }
         return [];
     }

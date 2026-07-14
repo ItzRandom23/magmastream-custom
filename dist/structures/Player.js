@@ -53,6 +53,15 @@ class Player {
     autoplayTries = 3;
     /** Whether autoplay is enabled for pool-based recommendations. */
     autoplayEnabled = false;
+    /** Recently played autoplay track identifiers/titles. */
+    autoplayHistory = [];
+    autoplayRecommendationAt = 0;
+    /** Last time this player had user/playback activity. */
+    lastActivityAt = Date.now();
+    inactivityTimer = null;
+    /** Serializes Lavalink events for this player. */
+    eventQueue = Promise.resolve();
+    destroyRequested = false;
     /** Remaining autoplay candidates for this player. */
     autoplayPool = [];
     /** The last track identifier used to build the autoplay pool. */
@@ -103,6 +112,14 @@ class Player {
         this.queue.previous = new Array();
         // Add the player to the manager's player collection.
         this.manager.players.set(options.guildId, this);
+        this.inactivityTimer = setInterval(() => {
+            const timeout = this.manager.options.playerInactivityTimeoutMs;
+            if (timeout > 0 && this.voiceChannelId && !this.playing && !this.queue.current && Date.now() - this.lastActivityAt >= timeout) {
+                this.manager.log("info", `[PLAYER] Destroying inactive player ${this.guildId}`);
+                this.destroy().catch((error) => this.manager.log("error", `[PLAYER] Failed to destroy inactive player ${this.guildId}: ${error.message}`));
+            }
+        }, Math.min(Math.max(10000, (this.manager.options.playerInactivityTimeoutMs || 300000) / 2), 60000));
+        this.inactivityTimer.unref?.();
         // Set the initial volume locally. A REST sync can happen later once session is ready.
         this.volume = options.volume ?? 100;
         // Initialize the filters.
@@ -154,6 +171,7 @@ class Player {
      * @returns {void}
      */
     connect() {
+        this.lastActivityAt = Date.now();
         // Check if the voice channel has been set.
         if (!this.voiceChannelId) {
             throw new RangeError("No voice channel has been set. You must use the `setVoiceChannelId()` method to set the voice channel before connecting.");
@@ -229,8 +247,16 @@ class Player {
      * @emits {PlayerStateUpdate} - Emitted when the player state is updated.
      */
     async destroy(disconnect = true) {
+        if (this.destroyRequested || this.state === Utils_1.StateTypes.Destroying || (this.state === Utils_1.StateTypes.Disconnected && !this.manager.players.has(this.guildId)))
+            return false;
+        this.destroyRequested = true;
+        await this.eventQueue.catch(() => { });
         const oldPlayer = this ? { ...this } : null;
         this.state = Utils_1.StateTypes.Destroying;
+        if (this.inactivityTimer) {
+            clearInterval(this.inactivityTimer);
+            this.inactivityTimer = null;
+        }
 
         if (disconnect) {
             await this.pause(true).catch(() => { });
@@ -352,6 +378,8 @@ class Player {
         return this.nowPlayingMessage;
     }
     async play(optionsOrTrack, playOptions) {
+        this.lastActivityAt = Date.now();
+        this.set("queueEndInProgress", false);
         if (typeof optionsOrTrack !== "undefined" && Utils_1.TrackUtils.validate(optionsOrTrack)) {
             this.queue.current = optionsOrTrack;
             if (!this.isAutoplayTrack(optionsOrTrack)) {
@@ -433,6 +461,7 @@ class Player {
     clearAutoplayPool() {
         this.autoplayPool = [];
         this.lastAutoplaySeedTrackId = null;
+        this.autoplayHistory = [];
         return this;
     }
     normalizeTitle(title) {
@@ -463,6 +492,7 @@ class Player {
         const seedTitle = this.normalizeTitle(seedTrack?.title);
         const seenIdentifiers = new Set(seedIdentifier ? [seedIdentifier] : []);
         const seenTitles = new Set(seedTitle ? [seedTitle] : []);
+        const history = new Set(this.autoplayHistory ?? []);
         const filtered = [];
         for (const originalTrack of tracks) {
             const track = this.createAutoplayTrack(originalTrack);
@@ -470,6 +500,8 @@ class Player {
                 continue;
             const normalizedTitle = this.normalizeTitle(track.title);
             if (seedIdentifier && track.identifier === seedIdentifier)
+                continue;
+            if (history.has(track.identifier))
                 continue;
             if (seedTitle && normalizedTitle && normalizedTitle === seedTitle)
                 continue;
@@ -492,6 +524,10 @@ class Player {
         const preparedSeedTrack = this.createAutoplayTrack(seedTrack);
         if (!preparedSeedTrack)
             return [];
+        const now = Date.now();
+        if (now - this.autoplayRecommendationAt < 5000 && this.autoplayPool.length)
+            return this.autoplayPool;
+        this.autoplayRecommendationAt = now;
         const freshTracks = this.filterAutoplayTracks(await this.getRecommendedTracks(preparedSeedTrack), preparedSeedTrack);
         this.autoplayPool = mergeExisting
             ? this.mergeAndShuffleAutoplayPool(this.autoplayPool, freshTracks, preparedSeedTrack)
@@ -505,7 +541,14 @@ class Player {
         const nextTrack = this.autoplayPool.shift();
         if (!nextTrack)
             return false;
-        this.queue.add(nextTrack);
+        // queueEnd clears queue.current before requesting autoplay. Adding the
+        // recommendation to the queue is not enough: play() reads the active
+        // track from queue.current, so autoplay would otherwise fail with
+        // "No current track" after the first pool is exhausted.
+        this.queue.current = nextTrack;
+        this.autoplayHistory.push(nextTrack.identifier);
+        if (this.autoplayHistory.length > 25)
+            this.autoplayHistory.shift();
         await this.play();
         return true;
     }
@@ -926,6 +969,7 @@ class Player {
         if (node.options.identifier === this.node.options.identifier) {
             return this;
         }
+        const oldNode = this.node;
         try {
             const playerPosition = this.position;
             const currentTrack = this.queue.current ? this.queue.current : null;
@@ -947,6 +991,8 @@ class Player {
             return this;
         }
         catch (error) {
+            this.node = oldNode;
+            this.manager.players.set(this.guildId, this);
             throw new Error(`Failed to move player to node ${identifier}: ${error}`);
         }
     }

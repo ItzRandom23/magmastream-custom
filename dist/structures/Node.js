@@ -278,9 +278,7 @@ class Node {
         // Automove all players connected to that node
         const players = this.manager.players.filter((p) => p.node == this);
         if (players.size) {
-            players.forEach(async (player) => {
-                await player.autoMoveNode();
-            });
+            await Promise.allSettled(Array.from(players.values(), (player) => player.autoMoveNode()));
         }
         // Close the WebSocket connection
         this.socket.close(1000, "destroy");
@@ -323,6 +321,7 @@ class Node {
         // Emit a debug event indicating the node is attempting to reconnect
         this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Reconnecting node: ${JSON.stringify(debugInfo)}`);
         // Schedule the reconnection attempt after the specified retry delay
+        const backoffDelay = Math.min(this.options.retryDelayMs * Math.pow(2, Math.max(0, this.reconnectAttempts - 1)), 300000);
         this.reconnectTimeout = setTimeout(async () => {
             this.reconnectTimeout = undefined;
             this.reconnecting = false;
@@ -343,7 +342,7 @@ class Node {
             this.connect();
             // Increment the reconnect attempts counter
             this.reconnectAttempts++;
-        }, this.options.retryDelayMs);
+        }, backoffDelay);
     }
     /**
      * Handles the "open" event emitted by the WebSocket connection.
@@ -554,10 +553,11 @@ class Node {
         if (!payload.guildId)
             return;
         const player = this.manager.players.get(payload.guildId);
-        if (!player)
+        if (!player || player.destroyRequested)
             return;
-        const track = player.queue.current;
         const type = payload.type;
+        const processEvent = async () => {
+        const track = player.queue.current;
         let error;
         switch (type) {
             case "TrackStartEvent":
@@ -595,6 +595,9 @@ class Node {
                 this.manager.emit(Manager_1.ManagerEventTypes.NodeError, this, error);
                 break;
         }
+        };
+        player.eventQueue = (player.eventQueue ?? Promise.resolve()).then(processEvent, processEvent);
+        await player.eventQueue;
     }
     /**
      * Emitted when a new track starts playing.
@@ -607,9 +610,10 @@ class Node {
         const oldPlayer = player;
         player.playing = true;
         player.paused = false;
+        player.set("trackFailureAttempts", 0);
         this.manager.emit(Manager_1.ManagerEventTypes.TrackStart, player, track, payload);
         const botUser = player.get("Internal_BotUser");
-        if (botUser && botUser.id === track.requester.id) {
+        if (botUser && botUser.id === track?.requester?.id) {
             this.manager.emit(Manager_1.ManagerEventTypes.PlayerStateUpdate, oldPlayer, player, {
                 changeType: Manager_1.PlayerStateEventTypes.TrackChange,
                 details: {
@@ -636,6 +640,11 @@ class Node {
      */
     async trackEnd(player, track, payload) {
         const { reason } = payload;
+        const signature = `${track?.track ?? track?.identifier ?? "unknown"}:${reason}`;
+        const previousEnd = player.get("lastTrackEnd");
+        if (previousEnd?.signature === signature && Date.now() - previousEnd.at < 2000)
+            return;
+        player.set("lastTrackEnd", { signature, at: Date.now() });
         const skipFlag = player.get("skipFlag");
         if (!skipFlag && (player.queue.previous.length === 0 || (player.queue.previous[0] && player.queue.previous[0].track !== player.queue.current?.track))) {
             // Store the current track in the previous tracks queue
@@ -738,10 +747,31 @@ class Node {
      * @private
      */
     async handleFailedTrack(player, track, payload) {
-        player.clearAutoplayPool();
+        const retryAttempts = player.get("trackFailureAttempts") ?? 0;
+        const maxRetries = Math.max(0, this.manager.options.trackRetryAttempts ?? 2);
+        if (player.get("retryingTrack") === track?.track)
+            return;
+        if (track?.track && retryAttempts < maxRetries) {
+            player.set("trackFailureAttempts", retryAttempts + 1);
+            player.set("retryingTrack", track.track);
+            try {
+                await player.play(track);
+                this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Retrying failed track for ${player.guildId} (${retryAttempts + 1}/${maxRetries})`);
+                return;
+            }
+            catch (error) {
+                player.set("retryingTrack", null);
+                this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Track retry failed for ${player.guildId}: ${error.message}`);
+            }
+        }
+        player.set("trackFailureAttempts", 0);
+        player.set("retryingTrack", null);
         player.queue.current = player.queue.shift();
         if (!player.queue.current) {
-            await this.queueEnd(player, track, payload);
+            const endPayload = player.isAutoplay
+                ? { ...payload, reason: Utils_1.TrackEndReasonTypes.Finished }
+                : payload;
+            await this.queueEnd(player, track, endPayload);
             return;
         }
         this.manager.emit(Manager_1.ManagerEventTypes.TrackEnd, player, track, payload);
@@ -750,7 +780,9 @@ class Node {
                 await player.play();
             }
             else {
-                await this.queueEnd(player, track, payload);
+                await this.queueEnd(player, track, player.isAutoplay
+                    ? { ...payload, reason: Utils_1.TrackEndReasonTypes.Finished }
+                    : payload);
             }
         }
     }
@@ -836,6 +868,9 @@ class Node {
      * @returns {Promise<void>} A promise that resolves when the queue end processing is complete.
      */
     async queueEnd(player, track, payload) {
+        if (player.get("queueEndInProgress"))
+            return;
+        player.set("queueEndInProgress", true);
         player.queue.current = null;
         if (!player.isAutoplay) {
             player.clearAutoplayPool();
@@ -847,8 +882,10 @@ class Node {
         let success = false;
         while (attempt <= player.autoplayTries) {
             success = await this.handleAutoplay(player, track, payload, attempt);
-            if (success)
+            if (success) {
+                player.set("queueEndInProgress", false);
                 return;
+            }
             attempt++;
         }
         // If all attempts fail, reset the player state and emit queueEnd
@@ -891,6 +928,7 @@ class Node {
     async trackStuck(player, track, payload) {
         await player.stop();
         this.manager.emit(Manager_1.ManagerEventTypes.TrackStuck, player, track, payload);
+        await this.handleFailedTrack(player, track, { ...payload, reason: Utils_1.TrackEndReasonTypes.LoadFailed });
     }
     /**
      * Handles the event when a track has an error during playback.
@@ -905,6 +943,7 @@ class Node {
     async trackError(player, track, payload) {
         await player.stop();
         this.manager.emit(Manager_1.ManagerEventTypes.TrackError, player, track, payload);
+        await this.handleFailedTrack(player, track, { ...payload, reason: Utils_1.TrackEndReasonTypes.LoadFailed });
     }
     /**
      * Emitted when the WebSocket connection for a player closes.

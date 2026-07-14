@@ -99,6 +99,15 @@ class Rest {
      */
     async request(method, endpoint, body) {
         this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[REST] ${method} api call for endpoint: ${endpoint} with data: ${JSON.stringify(body)}`);
+        const cacheable = method === "GET" && endpoint.startsWith("/v4/loadtracks?");
+        const cacheKey = cacheable ? `${this.node.options.identifier}:${endpoint}` : null;
+        if (cacheKey) {
+            const cached = this.manager.trackCache.get(cacheKey);
+            if (cached && cached.expiresAt > Date.now())
+                return cached.value;
+            if (cached)
+                this.manager.trackCache.delete(cacheKey);
+        }
         const config = {
             method,
             url: this.url + endpoint,
@@ -111,6 +120,10 @@ class Rest {
         };
         try {
             const response = await (0, axios_1.default)(config);
+            if (cacheKey && response.data && response.data.loadType !== "error") {
+                const ttl = Math.max(0, this.manager.options.trackCacheTtlMs ?? 300000);
+                this.manager.trackCache.set(cacheKey, { value: response.data, expiresAt: Date.now() + ttl });
+            }
             return response.data;
         }
         catch (error) {

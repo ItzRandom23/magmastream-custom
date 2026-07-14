@@ -22,6 +22,8 @@ class Manager extends events_1.EventEmitter {
     nodes = new collection_1.Collection();
     /** Temporary reservations used while moving players after a node failure. */
     failoverReservations = new Map();
+    /** In-memory cache for track and recommendation load requests. */
+    trackCache = new Map();
     /** The options that were set. */
     options;
     initiated = false;
@@ -70,6 +72,10 @@ class Manager extends events_1.EventEmitter {
             autoPlaySearchPlatforms: [AutoPlayPlatform.Spotify, AutoPlayPlatform.Deezer, AutoPlayPlatform.Jiosaavn],
             useNode: UseNodeOptions.LeastPlayers,
             maxPreviousTracks: options.maxPreviousTracks ?? 20,
+            playerInactivityTimeoutMs: options.playerInactivityTimeoutMs ?? 300000,
+            trackCacheTtlMs: options.trackCacheTtlMs ?? 300000,
+            trackRetryAttempts: options.trackRetryAttempts ?? 2,
+            logLevel: options.logLevel ?? "info",
             ...options,
         };
         if (this.options.nodes) {
@@ -107,6 +113,12 @@ class Manager extends events_1.EventEmitter {
                 }
             });
         }
+    }
+    log(level, message, ...args) {
+        const levels = { error: 0, warn: 1, info: 2, debug: 3 };
+        const configured = levels[this.options?.logLevel] ?? levels.info;
+        if ((levels[level] ?? levels.info) <= configured)
+            console[level === "debug" ? "debug" : level](message, ...args);
     }
     /**
      * Initiates the Manager.
@@ -256,6 +268,20 @@ class Manager extends events_1.EventEmitter {
         this.emit(ManagerEventTypes.Debug, `[MANAGER] Creating new player with options: ${JSON.stringify(options)}`);
         return new (Utils_1.Structure.get("Player"))(options);
     }
+    /** Loads a playlist and appends it to a player in event-loop-friendly chunks. */
+    async loadPlaylistInChunks(player, query, requester, sourcePlatforms, chunkSize = 100) {
+        if (!player || typeof player.queue?.add !== "function")
+            throw new TypeError("A valid player is required.");
+        if (!Number.isInteger(chunkSize) || chunkSize < 1)
+            throw new RangeError("chunkSize must be a positive integer.");
+        const result = await this.search(query, requester, sourcePlatforms);
+        const tracks = result.playlist?.tracks ?? result.tracks ?? [];
+        for (let index = 0; index < tracks.length; index += chunkSize) {
+            player.queue.add(tracks.slice(index, index + chunkSize));
+            await new Promise((resolve) => setImmediate(resolve));
+        }
+        return result;
+    }
     /**
      * Returns a player or undefined if it does not exist.
      * @param guildId The guild ID of the player to retrieve.
@@ -356,15 +382,13 @@ class Manager extends events_1.EventEmitter {
      */
     decodeTracks(tracks) {
         this.emit(ManagerEventTypes.Debug, `[MANAGER] Decoding tracks: ${JSON.stringify(tracks)}`);
-        return new Promise(async (resolve, reject) => {
-            const node = this.nodes.first();
-            if (!node)
-                throw new Error("No available nodes.");
-            const res = (await node.rest.post("/v4/decodetracks", JSON.stringify(tracks)).catch((err) => reject(err)));
-            if (!res) {
-                return reject(new Error("No data returned from query."));
-            }
-            return resolve(res);
+        const node = this.useableNode;
+        if (!node)
+            return Promise.reject(new Error("No available nodes."));
+        return node.rest.post("/v4/decodetracks", JSON.stringify(tracks)).then((res) => {
+            if (!res)
+                throw new Error("No data returned from query.");
+            return res;
         });
     }
     /**
@@ -607,8 +631,9 @@ class Manager extends events_1.EventEmitter {
      * from assigning every player to the same node.
      */
     getFailoverNode(excludedNode) {
-        const candidates = this.nodes
-            .filter((node) => node.connected && node !== excludedNode)
+        const connectedCandidates = this.nodes.filter((node) => node.connected && node !== excludedNode);
+        const healthyCandidates = connectedCandidates.filter((node) => this.isHealthyNode(node));
+        const candidates = (healthyCandidates.length ? healthyCandidates : connectedCandidates)
             .sort((a, b) => {
             const aReservations = this.failoverReservations.get(a.options.identifier) ?? 0;
             const bReservations = this.failoverReservations.get(b.options.identifier) ?? 0;
@@ -626,6 +651,13 @@ class Manager extends events_1.EventEmitter {
             this.failoverReservations.set(id, (this.failoverReservations.get(id) ?? 0) + 1);
         }
         return node;
+    }
+    isHealthyNode(node) {
+        const cpu = node?.stats?.cpu;
+        const memory = node?.stats?.memory;
+        const cpuLoad = cpu?.cores ? cpu.lavalinkLoad / cpu.cores : 0;
+        const memoryLoad = memory?.allocated ? memory.used / memory.allocated : 0;
+        return !!node?.connected && cpuLoad < 0.95 && memoryLoad < 0.95;
     }
     releaseFailoverReservation(node) {
         const id = node.options.identifier;
@@ -933,10 +965,10 @@ class Manager extends events_1.EventEmitter {
      */
     get leastLoadNode() {
         return this.nodes
-            .filter((node) => node.connected)
+            .filter((node) => this.isHealthyNode(node))
             .sort((a, b) => {
-                const aload = a.stats.cpu ? (a.stats.cpu.lavalinkLoad / a.stats.cpu.cores) * 100 : 0;
-                const bload = b.stats.cpu ? (b.stats.cpu.lavalinkLoad / b.stats.cpu.cores) * 100 : 0;
+            const aload = a.stats.cpu?.cores ? (a.stats.cpu.lavalinkLoad / a.stats.cpu.cores) * 100 : 0;
+            const bload = b.stats.cpu?.cores ? (b.stats.cpu.lavalinkLoad / b.stats.cpu.cores) * 100 : 0;
                 // Sort the nodes by their load in ascending order
                 return aload - bload;
             });
@@ -949,7 +981,7 @@ class Manager extends events_1.EventEmitter {
      */
     get leastPlayersNode() {
         return this.nodes
-            .filter((node) => node.connected) // Filter out nodes that are not connected
+            .filter((node) => this.isHealthyNode(node))
             .sort((a, b) => a.stats.players - b.stats.players); // Sort by the number of players
     }
     /**
@@ -963,7 +995,7 @@ class Manager extends events_1.EventEmitter {
      */
     get priorityNode() {
         // Filter out nodes that are not connected or have a priority of 0
-        const filteredNodes = this.nodes.filter((node) => node.connected && node.options.nodePriority > 0);
+        const filteredNodes = this.nodes.filter((node) => this.isHealthyNode(node) && node.options.nodePriority > 0);
         // Calculate the total weight
         const totalWeight = filteredNodes.reduce((total, node) => total + node.options.nodePriority, 0);
         // Map the nodes to their weights
