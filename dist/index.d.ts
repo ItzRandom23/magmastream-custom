@@ -1166,6 +1166,11 @@ interface ManagerOptions {
     lastFmApiKey: string;
     /** The maximum number of previous tracks to store. */
     maxPreviousTracks?: number;
+    /**
+     * Called before MagmaStream stops a track that raised a Lavalink exception.
+     * Return true after recovering playback to prevent the default stop/skip path.
+     */
+    trackErrorRecovery?: (player: Player, track: Track, payload: TrackExceptionEvent) => boolean | Promise<boolean>;
     /** The array of nodes to connect to. */
     nodes?: NodeOptions[];
     /** An array of track properties to keep. `track` will always be present. */

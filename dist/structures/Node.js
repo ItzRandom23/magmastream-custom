@@ -941,6 +941,21 @@ class Node {
      * @protected
      */
     async trackError(player, track, payload) {
+        // Give consumers a chance to resolve a fresh track before the current
+        // encoded stream is stopped and the queue advances. This is essential
+        // for sources whose stream URL expires while playback is paused.
+        const recover = this.manager.options.trackErrorRecovery;
+        if (typeof recover === "function") {
+            try {
+                if (await recover(player, track, payload)) {
+                    this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Track error recovered for ${player.guildId}`);
+                    return;
+                }
+            }
+            catch (error) {
+                this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Track error recovery failed for ${player.guildId}: ${error.message}`);
+            }
+        }
         await player.stop();
         this.manager.emit(Manager_1.ManagerEventTypes.TrackError, player, track, payload);
         await this.handleFailedTrack(player, track, { ...payload, reason: Utils_1.TrackEndReasonTypes.LoadFailed });
