@@ -926,6 +926,21 @@ class Node {
      * @protected
      */
     async trackStuck(player, track, payload) {
+        // Refresh the source before stop() advances/retries the same encoded
+        // track. This avoids repeated 10-second stuck loops for expired
+        // Spotify/Deezer stream URLs.
+        const recover = this.manager.options.trackErrorRecovery;
+        if (typeof recover === "function") {
+            try {
+                if (await recover(player, track, payload)) {
+                    this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Stuck track recovered for ${player.guildId}`);
+                    return;
+                }
+            }
+            catch (error) {
+                this.manager.emit(Manager_1.ManagerEventTypes.Debug, `[NODE] Stuck-track recovery failed for ${player.guildId}: ${error.message}`);
+            }
+        }
         await player.stop();
         this.manager.emit(Manager_1.ManagerEventTypes.TrackStuck, player, track, payload);
         await this.handleFailedTrack(player, track, { ...payload, reason: Utils_1.TrackEndReasonTypes.LoadFailed });
